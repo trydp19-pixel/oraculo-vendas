@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import requests
 import base64
+import urllib.parse
 import streamlit as st
 from bs4 import BeautifulSoup
 from openai import OpenAI
@@ -1053,6 +1054,10 @@ if 'produto_salvo' in st.session_state:
 
         texto_editado = st.text_area("Bloco de Notas da Postagem:", value=st.session_state.get('area_edicao', ''), height=250)
         st.session_state['area_edicao'] = texto_editado 
+        
+        # NOVO: Botão de enviar para o WhatsApp
+        texto_url = urllib.parse.quote(texto_editado)
+        st.link_button("📲 Enviar para o WhatsApp", f"https://api.whatsapp.com/send?text={texto_url}", use_container_width=True)
         
         st.markdown("🔖 **Selos Rápidos (Adiciona ao lado do preço):**")
         col_s1, col_s2, col_s3 = st.columns(3)
