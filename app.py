@@ -720,7 +720,7 @@ As frases devem ter entre 3 a 10 palavras e não conter ponto de exclamação.
 
 # PRODUTO ORIGINAL: {PRODUTO}
 # RASCUNHOS GERADOS: {FRASES_CANDIDATAS}
-# REGRA DO TÍTULO: Crie um nome comercial perfeito. MANTENHA a quantidade se for um Kit (ex: "Kit 10 Cuecas"), a Marca, o Modelo e a Característica Principal (ex: "Sem Costura"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium", "Barato") e códigos. Formate separando por hífen.
+# REGRA DO TÍTULO: Crie um nome comercial chamativo. MANTENHA a Marca, o Modelo, a quantidade (se for Kit) e Destaque 1 a 2 ESPECIFICAÇÕES TÉCNICAS RELEVANTES presentes no nome original (ex: "GPS Integrado", "Bateria de 21 Dias", "256GB"). REMOVA palavras inúteis (ex: "Original", "Premium") e códigos. Formate TUDO separando por hífen (Ex: Marca Modelo - Especificação 1 - Especificação 2).
 # REGRA DA QUANTIDADE: Analise o nome do produto e identifique a quantidade total de itens para dividir o preço. Ex: "Kit 10 Cuecas" -> 10. "Cabo iPhone" -> 1.
 """
 
