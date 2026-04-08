@@ -684,7 +684,7 @@ def extrair_dados_loja(url, ml_token=None):
 # 🧠 MÓDULO DE INTELIGÊNCIA ARTIFICIAL
 # ==========================================
 PROMPT_CRIADOR_DINAMICO = """
-Aja como um copywriter de WhatsApp focado no público brasileiro.
+Aja como um copywriter de WhatsApp focado em alta conversão no Brasil. O tom deve ser persuasivo, direto e maduro. NADA de frases bobinhas ou clichês baratos.
 
 # 🚨 PASSO 1: ENTENDA O PRODUTO E A QUANTIDADE
 Produto: {PRODUTO}
@@ -693,18 +693,18 @@ REGRA ABSOLUTA: Você DEVE criar frases que façam sentido especificamente para 
 # 🚨 PASSO 2: GERAÇÃO DAS FRASES
 Gere 8 FRASES INÉDITAS (entre 3 a 10 palavras), divididas RIGOROSAMENTE em dois estilos:
 
-🎯 ESTILO 1: VENDEDOR DIRETO (Exatamente 4 opções)
-Foco EXCLUSIVO em Preço Baixo ou Benefício Real adaptado ao produto. 
-(NÃO COPIE ESTES EXEMPLOS, CRIE OS SEUS): "O preço despencou hoje", "Custo-benefício que você respeita".
+🎯 ESTILO 1: VENDEDOR AGRESSIVO E DIRETO (Exatamente 4 opções)
+Foco EXCLUSIVO em urgência real, benefício matador ou queda drástica de preço. Tom profissional e de impacto.
+(NÃO COPIE ESTES EXEMPLOS, CRIE OS SEUS): "O preço despencou de verdade hoje", "Qualidade premium que você precisa ter".
 
-🎯 ESTILO 2: O AMIGO ZOEIRO BRASILEIRO (Exatamente 4 opções)
-Foco em humor da internet, sarcasmo e provocação ligada à utilidade do produto.
-(NÃO COPIE ESTES EXEMPLOS, CRIE OS SEUS): "Seu eu do futuro vai agradecer", "Para de passar vontade e leva".
+🎯 ESTILO 2: O AMIGO ZOEIRO (Exatamente 4 opções)
+Foco: Humor sarcástico, ácido e provocativo. Tire sarro do comprador (ex: chamando de pão-duro, enrolado), faça ironias com a utilidade do produto ou zoe a si mesmo (o robô). Tem que ter sentido com o produto. NADA de piadas infantis ou "sessão da tarde".
+(NÃO COPIE ESTES EXEMPLOS, CRIE OS SEUS): "Compra logo antes que seu cartão bloqueie", "Achei que você ia ser pobre pra sempre".
         
 # 🚨 REGRAS DE OURO MÁXIMAS: 
 1. É ESTRITAMENTE PROIBIDO COPIAR OS EXEMPLOS.
 2. SEM PONTO DE EXCLAMAÇÃO (!).
-3. PALAVRAS E CLICHÊS PROIBIDOS: JAMAIS use "oferta imperdível", "estoque ilimitado", "estoque limitado", "últimas unidades" ou frases genéricas sobre fim de estoque.
+3. PALAVRAS E EXPRESSÕES EXPRESSAMENTE PROIBIDAS: JAMAIS use "preço camarada", "sem estourar o orçamento", "precinho", "cabe no bolso", "oferta imperdível", "estoque ilimitado", "estoque limitado", "últimas unidades" ou frases bobas.
 4. O usuário ODEIA e reprovou as seguintes frases no passado (NUNCA as repita):
 {EXEMPLOS_NEGATIVOS}
 
@@ -717,11 +717,14 @@ Você é o Editor-Chefe.
 Sua missão é extrair as frases geradas e formatar estritamente no JSON solicitado.
 OBRIGATÓRIO: O Array 'frases_vendedor' DEVE conter EXATAMENTE 4 frases e o Array 'frases_zoeira' DEVE conter EXATAMENTE 4 frases. 
 As frases devem ter entre 3 a 10 palavras e não conter ponto de exclamação.
+É ESTRITAMENTE PROIBIDO aprovar frases bobinhas ou com as expressões: "preço camarada", "sem estourar o orçamento", "cabe no bolso", "oferta imperdível", "estoque", "últimas unidades".
+Também é proibido aprovar frases parecidas com estas que o usuário já reprovou:
+{EXEMPLOS_NEGATIVOS}
 
 # PRODUTO ORIGINAL: {PRODUTO}
 # RASCUNHOS GERADOS: {FRASES_CANDIDATAS}
-# REGRA DO TÍTULO: Crie um nome comercial chamativo. MANTENHA a Marca, o Modelo, a quantidade (se for Kit) e Destaque 1 a 2 ESPECIFICAÇÕES TÉCNICAS RELEVANTES presentes no nome original (ex: "GPS Integrado", "Bateria de 21 Dias", "256GB"). REMOVA palavras inúteis (ex: "Original", "Premium") e códigos. Formate TUDO separando por hífen (Ex: Marca Modelo - Especificação 1 - Especificação 2).
-# REGRA DA QUANTIDADE: Analise o nome do produto e identifique a quantidade total de itens para dividir o preço. Ex: "Kit 10 Cuecas" -> 10. "Cabo iPhone" -> 1.
+# REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Celular", "Esmerilhadeira", "Notebook"). MANTENHA a Marca, o Modelo, a quantidade (se for Kit) e Destaque 1 a 2 ESPECIFICAÇÕES TÉCNICAS RELEVANTES (ex: "GPS Integrado", "256GB"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). Formate TUDO separando por hífen (Ex: Tipo do Produto - Marca Modelo - Especificação 1).
+# REGRA DA QUANTIDADE: Identifique a quantidade do PRODUTO PRINCIPAL. ATENÇÃO: NÃO conte acessórios, soquetes, brindes ou peças do kit como unidades. Ex: "Kit 10 Cuecas" = 10. "Esmerilhadeira com 40 soquetes" = 1. "Celular com película" = 1. Retorne apenas o número inteiro.
 """
 
 def executar_pipeline_universal(nome_produto):
@@ -756,12 +759,12 @@ def executar_pipeline_universal(nome_produto):
         if not candidatas_brutas: 
             return fallback_frases, nome_produto, 1
 
-        prompt_editor = PROMPT_JUIZ_EDITOR.replace("{PRODUTO}", nome_produto).replace("{FRASES_CANDIDATAS}", candidatas_brutas)
+        prompt_editor = PROMPT_JUIZ_EDITOR.replace("{PRODUTO}", nome_produto).replace("{FRASES_CANDIDATAS}", candidatas_brutas).replace("{EXEMPLOS_NEGATIVOS}", texto_negativos)
         schema = {
             "type": "OBJECT", 
             "properties": {
                 "frases_vendedor": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases de vendas diretas"},
-                "frases_zoeira": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases engraçadas/sarcasticas"},
+                "frases_zoeira": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases focadas em humor acido e deboche"},
                 "titulo_resumido": {"type": "STRING"},
                 "quantidade_itens": {"type": "INTEGER", "description": "Quantas unidades vêm no pacote? (Padrão: 1)"}
             }, 
@@ -894,6 +897,7 @@ def cb_usar_salvar_frase(titulo_produto):
             st.session_state.texto_final_zap = novo_texto
             st.session_state.area_edicao = novo_texto
         registrar_feedback(frase_formatada, titulo_produto, 1)
+        st.session_state['input_frase_custom'] = ""
 
 def cb_trocar_frase(nova_frase):
     linhas = st.session_state.get('area_edicao', '').split('\n')
@@ -1055,7 +1059,6 @@ if 'produto_salvo' in st.session_state:
         texto_editado = st.text_area("Bloco de Notas da Postagem:", value=st.session_state.get('area_edicao', ''), height=250)
         st.session_state['area_edicao'] = texto_editado 
         
-        # NOVO: Botão de enviar para o WhatsApp
         texto_url = urllib.parse.quote(texto_editado)
         st.link_button("📲 Enviar para o WhatsApp", f"https://api.whatsapp.com/send?text={texto_url}", use_container_width=True)
         
@@ -1075,7 +1078,6 @@ if 'produto_salvo' in st.session_state:
         if st.button("➕ Usar e Salvar", use_container_width=True, on_click=cb_usar_salvar_frase, args=(produto_salvo.get('titulo', ''),)):
             if st.session_state.get('input_frase_custom', '').strip():
                 st.toast("✅ Frase aplicada e salva na memória!")
-                st.session_state['input_frase_custom'] = ""
 
     for i, f in enumerate(st.session_state.get('frases_salvas', [])[1:]):
         c_frase, c_up, c_down = st.columns([10, 1, 1])
