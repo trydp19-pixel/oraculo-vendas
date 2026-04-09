@@ -724,7 +724,7 @@ Também é proibido aprovar frases parecidas com estas que o usuário já reprov
 # PRODUTO ORIGINAL: {PRODUTO}
 # RASCUNHOS GERADOS: {FRASES_CANDIDATAS}
 # REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Celular", "Esmerilhadeira", "Notebook"). MANTENHA a Marca, o Modelo, a quantidade (se for Kit) e Destaque 1 a 2 ESPECIFICAÇÕES TÉCNICAS RELEVANTES (ex: "GPS Integrado", "256GB"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). Formate TUDO separando por hífen (Ex: Tipo do Produto - Marca Modelo - Especificação 1).
-# REGRA DA QUANTIDADE: Identifique a quantidade do PRODUTO PRINCIPAL. ATENÇÃO: NÃO conte acessórios, soquetes, brindes ou peças do kit como unidades. Ex: "Kit 10 Cuecas" = 10. "Esmerilhadeira com 40 soquetes" = 1. "Celular com película" = 1. Retorne apenas o número inteiro.
+# REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS para fins de cálculo de custo por unidade. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), peças de um conjunto (ex: "Jogo de Panelas 5 Peças" = 1), ferramentas de um estojo ou acessórios. SÓ FRACIONE se for um kit de produtos idênticos repetidos (ex: "Kit 10 Cuecas" = 10, "Kit 3 Shampoos" = 3). Retorne apenas o número inteiro.
 """
 
 def executar_pipeline_universal(nome_produto):
