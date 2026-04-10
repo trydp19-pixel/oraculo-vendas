@@ -684,25 +684,32 @@ def extrair_dados_loja(url, ml_token=None):
 # 🧠 MÓDULO DE INTELIGÊNCIA ARTIFICIAL
 # ==========================================
 PROMPT_CRIADOR_DINAMICO = """
-Aja como um copywriter de WhatsApp focado em alta conversão no Brasil. O tom deve ser persuasivo, direto e maduro. NADA de frases bobinhas ou clichês baratos.
+Aja como um copywriter de WhatsApp focado em alta conversão no Brasil. O tom deve ser persuasivo, direto, maduro e MUITO CRIATIVO. NADA de frases genéricas que servem para qualquer produto.
 
-# 🚨 PASSO 1: ENTENDA O PRODUTO E A QUANTIDADE
+# 🚨 PASSO 1: ENTENDA O PRODUTO E SEU USO REAL
 Produto: {PRODUTO}
-REGRA ABSOLUTA: Você DEVE criar frases que façam sentido especificamente para este produto.
+REGRA ABSOLUTA: Analise para que serve este produto, quem usa e qual o benefício real ou a dor que ele resolve no dia a dia. A frase DEVE ter total contexto com a utilidade do produto.
 
 # 🚨 PASSO 2: GERAÇÃO DAS FRASES
 Gere 8 FRASES INÉDITAS (entre 3 a 10 palavras), divididas RIGOROSAMENTE em dois estilos:
 
 🎯 ESTILO 1: VENDEDOR AGRESSIVO E DIRETO (Exatamente 4 opções)
 Foco EXCLUSIVO em urgência real, benefício matador ou queda drástica de preço. Tom profissional e de impacto.
-(NÃO COPIE ESTES EXEMPLOS, CRIE OS SEUS): "O preço despencou de verdade hoje", "Qualidade premium que você precisa ter".
+(NÃO COPIE ESTES EXEMPLOS): "O preço despencou de verdade hoje", "Qualidade premium que você precisa ter".
 
-🎯 ESTILO 2: O AMIGO ZOEIRO (Exatamente 4 opções)
-Foco: Humor sarcástico, ácido e provocativo. Tire sarro do comprador (ex: chamando de pão-duro, enrolado), faça ironias com a utilidade do produto ou zoe a si mesmo (o robô). Tem que ter sentido com o produto. NADA de piadas infantis ou "sessão da tarde".
-(NÃO COPIE ESTES EXEMPLOS, CRIE OS SEUS): "Compra logo antes que seu cartão bloqueie", "Achei que você ia ser pobre pra sempre".
+🎯 ESTILO 2: HUMOR CONTEXTUAL E CRIATIVO (Exatamente 4 opções)
+Foco: Frases brilhantes, específicas para a utilidade do produto, com humor ácido, cotidiano ou provocativo. Pense no uso real do produto e faça uma piada madura ou comentário sagaz sobre isso.
+(USE ESTES COMO INSPIRAÇÃO DO NÍVEL EXIGIDO):
+- Talheres -> "JÁ PODE PARAR DE COMER COM A MÃO"
+- Camisa de Treino -> "NOVO INCENTIVO PRA TU IR TREINAR"
+- Perfume Masculino Doce -> "CHEIRINHO DE HOMEM QUE NÃO PRESTA"
+- Sabonete Facial -> "JÁ FEZ SUA SKIN CARE HOJE?"
+- Tênis -> "SÓ PRA QUEM TEM ESTILO"
+- Cueca Boxer -> "CHEGA DE USAR ASA DELTA"
+- Lavadora de Alta Pressão -> "PRA DAR AQUELE TRATO NO SEU FUSCA"
         
 # 🚨 REGRAS DE OURO MÁXIMAS: 
-1. É ESTRITAMENTE PROIBIDO COPIAR OS EXEMPLOS.
+1. É ESTRITAMENTE PROIBIDO criar frases genéricas como "MUITO BARATO HOJE" no Estilo 2. O Estilo 2 precisa ser sobre O PRODUTO.
 2. SEM PONTO DE EXCLAMAÇÃO (!).
 3. PALAVRAS E EXPRESSÕES EXPRESSAMENTE PROIBIDAS: JAMAIS use "preço camarada", "sem estourar o orçamento", "precinho", "cabe no bolso", "oferta imperdível", "estoque ilimitado", "estoque limitado", "últimas unidades" ou frases bobas.
 4. O usuário ODEIA e reprovou as seguintes frases no passado (NUNCA as repita):
@@ -715,16 +722,16 @@ Foco: Humor sarcástico, ácido e provocativo. Tire sarro do comprador (ex: cham
 PROMPT_JUIZ_EDITOR = """
 Você é o Editor-Chefe.
 Sua missão é extrair as frases geradas e formatar estritamente no JSON solicitado.
-OBRIGATÓRIO: O Array 'frases_vendedor' DEVE conter EXATAMENTE 4 frases e o Array 'frases_zoeira' DEVE conter EXATAMENTE 4 frases. 
+OBRIGATÓRIO: O Array 'frases_vendedor' DEVE conter EXATAMENTE 4 frases e o Array 'frases_zoeira' DEVE conter EXATAMENTE 4 frases criativas e com contexto total ao produto. 
 As frases devem ter entre 3 a 10 palavras e não conter ponto de exclamação.
-É ESTRITAMENTE PROIBIDO aprovar frases bobinhas ou com as expressões: "preço camarada", "sem estourar o orçamento", "cabe no bolso", "oferta imperdível", "estoque", "últimas unidades".
+É ESTRITAMENTE PROIBIDO aprovar frases bobinhas, sem graça, repetitivas ou com as expressões: "preço camarada", "sem estourar o orçamento", "cabe no bolso", "oferta imperdível", "estoque", "últimas unidades".
 Também é proibido aprovar frases parecidas com estas que o usuário já reprovou:
 {EXEMPLOS_NEGATIVOS}
 
 # PRODUTO ORIGINAL: {PRODUTO}
 # RASCUNHOS GERADOS: {FRASES_CANDIDATAS}
 # REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Celular", "Esmerilhadeira", "Notebook"). MANTENHA a Marca, o Modelo, a quantidade (se for Kit) e Destaque 1 a 2 ESPECIFICAÇÕES TÉCNICAS RELEVANTES (ex: "GPS Integrado", "256GB"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). Formate TUDO separando por hífen (Ex: Tipo do Produto - Marca Modelo - Especificação 1).
-# REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS para fins de cálculo de custo por unidade. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), peças de um conjunto (ex: "Jogo de Panelas 5 Peças" = 1), ferramentas de um estojo ou acessórios. SÓ FRACIONE se for um kit de produtos idênticos repetidos (ex: "Kit 10 Cuecas" = 10, "Kit 3 Shampoos" = 3). Retorne apenas o número inteiro.
+# REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS para fins de cálculo de custo por unidade. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), peças de um conjunto (ex: "Jogo de Panelas 5 Peças" = 1), ferramentas de um estojo ou acessórios. MUITO IMPORTANTE: Itens vendidos em "Pares" (ex: meias, sapatos, brincos) contam como 1 unidade. Se o kit diz "3 Pares", a quantidade total é 3. SÓ FRACIONE se for um kit de produtos idênticos repetidos. Retorne apenas o número inteiro.
 """
 
 def executar_pipeline_universal(nome_produto):
