@@ -684,49 +684,51 @@ def extrair_dados_loja(url, ml_token=None):
 # 🧠 MÓDULO DE INTELIGÊNCIA ARTIFICIAL
 # ==========================================
 PROMPT_CRIADOR_DINAMICO = """
-Aja como um copywriter de WhatsApp focado em alta conversão no Brasil. O tom deve ser persuasivo, direto, maduro e MUITO CRIATIVO. NADA de frases genéricas que servem para qualquer produto.
+Aja como um gênio do copywriting e rei das sacadas de internet. Seu trabalho é vender produtos no WhatsApp para brasileiros, usando uma linguagem do dia a dia, afiada e zero corporativa.
 
-# 🚨 PASSO 1: ENTENDA O PRODUTO E SEU USO REAL
-Produto: {PRODUTO}
-REGRA ABSOLUTA: Analise para que serve este produto, quem usa e qual o benefício real ou a dor que ele resolve no dia a dia. A frase DEVE ter total contexto com a utilidade do produto.
+# 🚨 PASSO 1: ENTENDA A REALIDADE DO PRODUTO
+PRODUTO ALVO: {PRODUTO}
+Pense: Para que serve isso na vida real? Qual é a utilidade crua, a preguiça que ele resolve ou a vaidade que ele atende? A sua frase DEVE ter total conexão com a utilidade do produto.
 
 # 🚨 PASSO 2: GERAÇÃO DAS FRASES
-Gere 8 FRASES INÉDITAS (entre 3 a 10 palavras), divididas RIGOROSAMENTE em dois estilos:
+Gere 8 FRASES INÉDITAS (entre 3 a 10 palavras), divididas RIGOROSAMENTE nestes dois estilos:
 
-🎯 ESTILO 1: VENDEDOR AGRESSIVO E DIRETO (Exatamente 4 opções)
-Foco EXCLUSIVO em urgência real, benefício matador ou queda drástica de preço. Tom profissional e de impacto.
-(NÃO COPIE ESTES EXEMPLOS): "O preço despencou de verdade hoje", "Qualidade premium que você precisa ter".
+🎯 ESTILO 1: IMPACTO / DESEJO / DOR DIRETA (Exatamente 4 opções)
+Foco em bater na dor ou na necessidade imediata. Linguagem informal e forte.
+(EXEMPLOS - NÃO OS COPIE):
+- Lavadora de Pressão -> "CHEGA DE PASSAR VERGONHA COM SEU CARRO SUJO"
+- Cadeira -> "O FIM DA SUA DOR NAS COSTAS"
+- Produto Durável -> "PRA VOCÊ PARAR DE GASTAR COM DESCARTÁVEL"
 
-🎯 ESTILO 2: HUMOR CONTEXTUAL E CRIATIVO (Exatamente 4 opções)
-Foco: Frases brilhantes, específicas para a utilidade do produto, com humor ácido, cotidiano ou provocativo. Pense no uso real do produto e faça uma piada madura ou comentário sagaz sobre isso.
-(USE ESTES COMO INSPIRAÇÃO DO NÍVEL EXIGIDO):
+🎯 ESTILO 2: O DEBOCHADO / SINCERÃO / SACADA GENIAL (Exatamente 4 opções)
+Aqui é onde você brilha. Humor ácido, ironia pura, papo de rua. Tire sarro do uso do produto, da preguiça humana ou zoe o comprador. NADA DE PARECER VENDEDOR DE LOJA. Tem que ter sacada!
+(EXEMPLOS DO NÍVEL DE CRIATIVIDADE EXIGIDO - CRIE OUTROS BASEADOS NO PRODUTO):
 - Talheres -> "JÁ PODE PARAR DE COMER COM A MÃO"
 - Camisa de Treino -> "NOVO INCENTIVO PRA TU IR TREINAR"
 - Perfume Masculino Doce -> "CHEIRINHO DE HOMEM QUE NÃO PRESTA"
 - Sabonete Facial -> "JÁ FEZ SUA SKIN CARE HOJE?"
 - Tênis -> "SÓ PRA QUEM TEM ESTILO"
 - Cueca Boxer -> "CHEGA DE USAR ASA DELTA"
-- Lavadora de Alta Pressão -> "PRA DAR AQUELE TRATO NO SEU FUSCA"
-        
-# 🚨 REGRAS DE OURO MÁXIMAS: 
-1. É ESTRITAMENTE PROIBIDO criar frases genéricas como "MUITO BARATO HOJE" no Estilo 2. O Estilo 2 precisa ser sobre O PRODUTO.
-2. SEM PONTO DE EXCLAMAÇÃO (!).
-3. PALAVRAS E EXPRESSÕES EXPRESSAMENTE PROIBIDAS: JAMAIS use "preço camarada", "sem estourar o orçamento", "precinho", "cabe no bolso", "oferta imperdível", "estoque ilimitado", "estoque limitado", "últimas unidades" ou frases bobas.
-4. O usuário ODEIA e reprovou as seguintes frases no passado (NUNCA as repita):
-{EXEMPLOS_NEGATIVOS}
+- Ferramenta -> "PRA DAR AQUELE TRATO NO SEU FUSCA"
 
-# ✅ INSPIRAÇÃO GERAL (Frases que o usuário gostou): 
+# 🚨 O QUE É EXTREMAMENTE PROIBIDO (SE USAR, SERÁ DEMITIDO): 
+1. PROIBIDO FALAR COMO CATÁLOGO DE LOJA: NUNCA use frases genéricas e cafonas como "Conforto e estilo", "Ideal para o dia a dia", "Perfeita para todas as ocasiões", "Liberdade de movimento", "Sua aliada contra o calor". ISSO É CHATO. Seja informal, direto e inteligente.
+2. PROIBIDO usar palavras como: "Precinho", "Imperdível", "Qualidade", "Estilo em uma só peça".
+3. SEM PONTO DE EXCLAMAÇÃO (!).
+4. O usuário ODEIA as seguintes frases (NUNCA as repita):
+"TECIDO LEVE, IDEAL PARA O SEU DIA A DIA", "PARA QUEM BUSCA CONFORTO SEM ABRIR MÃO DO ESTILO", "A TECH LIGHT: SUA ALIADA CONTRA O CALOR", "LIBERDADE DE MOVIMENTO COM TOQUE MACIO", {EXEMPLOS_NEGATIVOS}
+
+# ✅ INSPIRAÇÃO (Frases que o usuário gostou): 
 {EXEMPLOS_POSITIVOS}
 """
 
 PROMPT_JUIZ_EDITOR = """
 Você é o Editor-Chefe.
 Sua missão é extrair as frases geradas e formatar estritamente no JSON solicitado.
-OBRIGATÓRIO: O Array 'frases_vendedor' DEVE conter EXATAMENTE 4 frases e o Array 'frases_zoeira' DEVE conter EXATAMENTE 4 frases criativas e com contexto total ao produto. 
+OBRIGATÓRIO: O Array 'frases_vendedor' DEVE conter EXATAMENTE 4 frases e o Array 'frases_zoeira' DEVE conter EXATAMENTE 4 frases. 
 As frases devem ter entre 3 a 10 palavras e não conter ponto de exclamação.
-É ESTRITAMENTE PROIBIDO aprovar frases bobinhas, sem graça, repetitivas ou com as expressões: "preço camarada", "sem estourar o orçamento", "cabe no bolso", "oferta imperdível", "estoque", "últimas unidades".
-Também é proibido aprovar frases parecidas com estas que o usuário já reprovou:
-{EXEMPLOS_NEGATIVOS}
+
+É ESTRITAMENTE PROIBIDO aprovar frases com cara de catálogo de loja de shopping (ex: "Conforto e estilo", "Ideal para o dia a dia", "Liberdade de movimento"). As frases DEVEM ter uma sacada inteligente, humor ácido ou resolver uma dor direta.
 
 # PRODUTO ORIGINAL: {PRODUTO}
 # RASCUNHOS GERADOS: {FRASES_CANDIDATAS}
@@ -736,10 +738,10 @@ Também é proibido aprovar frases parecidas com estas que o usuário já reprov
 
 def executar_pipeline_universal(nome_produto):
     fallback_frases = [
-        "PREÇO BOM DEMAIS PRA DEIXAR PASSAR", 
-        "RESOLVE A VIDA NO DIA A DIA", 
-        "MUITO BARATO HOJE", 
-        "VOCÊ NÃO PODE PERDER ESSA"
+        "AÍ SIM FOI VANTAGEM", 
+        "JÁ PODE APOSENTAR O VELHO", 
+        "PRA RESOLVER ESSE B.O LOGO", 
+        "O DESCONTO QUE TU QUERIA"
     ]
     
     try:
@@ -770,8 +772,8 @@ def executar_pipeline_universal(nome_produto):
         schema = {
             "type": "OBJECT", 
             "properties": {
-                "frases_vendedor": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases de vendas diretas"},
-                "frases_zoeira": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases focadas em humor acido e deboche"},
+                "frases_vendedor": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases focadas em impacto ou resolver uma dor, sem cara de vendedor."},
+                "frases_zoeira": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases com humor ácido, ironia ou papo reto de internet."},
                 "titulo_resumido": {"type": "STRING"},
                 "quantidade_itens": {"type": "INTEGER", "description": "Quantas unidades vêm no pacote? (Padrão: 1)"}
             }, 
@@ -781,7 +783,7 @@ def executar_pipeline_universal(nome_produto):
         gemini_payload = {
             "contents": [{"parts": [{"text": prompt_editor}]}], 
             "generationConfig": {
-                "temperature": 0.4, 
+                "temperature": 0.5, 
                 "responseMimeType": "application/json", 
                 "responseSchema": schema
             }
@@ -982,7 +984,7 @@ if st.button("🚀 Gerar Postagem", type="primary", use_container_width=True):
             frases, titulo_resumo, qtd_itens = executar_pipeline_universal(produto["titulo"])
             produto['quantidade'] = qtd_itens
             
-            frase_vencedora = frases[0] if frases else "BAIXOU MUITO HOJE"
+            frase_vencedora = frases[0] if frases else "AÍ SIM FOI VANTAGEM"
             
             txt_zap = f"*{frase_vencedora}*\n\n🔮 {titulo_resumo}\n\n"
             p_antigo, p_atual = produto.get('preco_antigo', ''), produto.get('preco_atual', '')
