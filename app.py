@@ -604,53 +604,100 @@ def extrair_shopee(url):
         except Exception as e:
             print(f"❌ Erro na API Pública Shopee: {e}")
 
-    if not preco_atual:
-        print("🕵️ Acionando Fallback: Leitura Bruta de Código HTML...")
+    if not preco_atual or titulo == "Produto Shopee":
+        print("🕵️ Acionando Fallback: Leitura Bruta com Máscara Googlebot...")
+        headers_bot = {
+            'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
         try:
-            html_resp = requests.get(url_limpa, headers=headers, timeout=15).text
-            
+            html_resp = requests.get(url_limpa, headers=headers_bot, timeout=15).text
             soup = BeautifulSoup(html_resp, 'html.parser')
+            
             t = soup.find('title')
             if t: titulo = t.text.replace(' | Shopee Brasil', '').strip()
             
-            match_price = re.search(r'"price":\s*(\d{5,})', html_resp)
-            if match_price and not preco_atual:
-                preco_atual = str(float(match_price.group(1)) / 100000)
-                
-            match_old = re.search(r'"price_before_discount":\s*(\d{5,})', html_resp)
-            if match_old and not preco_antigo:
-                preco_antigo = str(float(match_old.group(1)) / 100000)
-                
+            for script in soup.find_all('script', type='application/ld+json'):
+                try:
+                    data = json.loads(script.string)
+                    if isinstance(data, dict) and data.get('@type') == 'Product':
+                        titulo = data.get('name', titulo)
+                        if not foto_url and data.get('image'):
+                            foto_url = data['image']
+                        if 'offers' in data:
+                            preco_seo = data['offers'].get('price')
+                            if preco_seo: preco_atual = str(preco_seo)
+                except: pass
+            
+            if not preco_atual:
+                match_price = re.search(r'"price":\s*(\d{5,})', html_resp)
+                if match_price:
+                    preco_atual = str(float(match_price.group(1)) / 100000)
+                    
+            if not preco_antigo:
+                match_old = re.search(r'"price_before_discount":\s*(\d{5,})', html_resp)
+                if match_old:
+                    preco_antigo = str(float(match_old.group(1)) / 100000)
+                    
             if not foto_url:
                 i_meta = soup.find('meta', property='og:image')
                 if i_meta: foto_url = i_meta['content']
-        except: pass
+        except Exception as e:
+            print(f"❌ Erro no Fallback HTML da Shopee: {e}")
 
+    # ==============================================================
+    # 🔗 GERADOR DE LINK DE AFILIADO - SISTEMA ATUALIZADO E BLINDADO
+    # ==============================================================
     if SHOPEE_APP_ID and SHOPEE_APP_SECRET:
         print("🔑 Chaves de API detectadas! Solicitando Link Curto de Afiliado...")
         try:
             timestamp = int(time.time())
-            path_link = "/api/v2/affiliate/generate_short_link"
             
-            base_string_link = f"{SHOPEE_APP_ID}{path_link}{timestamp}"
-            sign_link = hmac.new(SHOPEE_APP_SECRET.encode('utf-8'), base_string_link.encode('utf-8'), hashlib.sha256).hexdigest()
+            # Tentativa 1: Porta mais moderna (GraphQL)
+            path_graphql = "/api/v2/affiliate/graphql"
+            base_string_graphql = f"{SHOPEE_APP_ID}{path_graphql}{timestamp}"
+            sign_graphql = hmac.new(SHOPEE_APP_SECRET.encode('utf-8'), base_string_graphql.encode('utf-8'), hashlib.sha256).hexdigest()
             
-            api_link_url = f"https://partner.shopeemobile.com{path_link}?partner_id={SHOPEE_APP_ID}&timestamp={timestamp}&sign={sign_link}"
+            api_graphql_url = f"https://partner.shopeemobile.com{path_graphql}?partner_id={SHOPEE_APP_ID}&timestamp={timestamp}&sign={sign_graphql}"
             
-            payload = {"originUrl": url_limpa}
+            payload_graphql = {
+                "query": f'mutation {{ generateShortLink(input: {{originUrl: "{url_limpa}"}}) {{ shortLink }} }}'
+            }
             headers_post = {'Content-Type': 'application/json'}
             
-            link_resp = requests.post(api_link_url, json=payload, headers=headers_post, timeout=10).json()
+            link_resp = requests.post(api_graphql_url, json=payload_graphql, headers=headers_post, timeout=10).json()
             
-            if link_resp.get("response") and link_resp["response"].get("shortLink"):
-                url = link_resp["response"]["shortLink"]
-                print(f"✅ Link de afiliado gerado com sucesso: {url}")
+            novo_link = None
+            if link_resp.get("data") and link_resp["data"].get("generateShortLink"):
+                novo_link = link_resp["data"]["generateShortLink"].get("shortLink")
+            
+            if novo_link:
+                url = novo_link
+                print(f"✅ Link de afiliado gerado com sucesso (GraphQL): {url}")
             else:
-                erro_api = link_resp.get('error', '')
-                msg_api = link_resp.get('message', '')
-                print(f"⚠️ AVISO da Shopee: Não foi possível gerar o link de afiliado. Erro: '{erro_api}' - {msg_api}")
+                # Tentativa 2: Porta tradicional (REST)
+                print("🔄 Tentando Fallback para endpoint REST normal...")
+                path_link = "/api/v2/affiliate/generate_short_link"
+                base_string_link = f"{SHOPEE_APP_ID}{path_link}{timestamp}"
+                sign_link = hmac.new(SHOPEE_APP_SECRET.encode('utf-8'), base_string_link.encode('utf-8'), hashlib.sha256).hexdigest()
+                api_link_url = f"https://partner.shopeemobile.com{path_link}?partner_id={SHOPEE_APP_ID}&timestamp={timestamp}&sign={sign_link}"
+                
+                payload_rest = {"originUrl": url_limpa}
+                link_resp_rest = requests.post(api_link_url, json=payload_rest, headers=headers_post, timeout=10).json()
+                
+                if link_resp_rest.get("data") and "shortLink" in link_resp_rest["data"]:
+                    url = link_resp_rest["data"]["shortLink"]
+                    print(f"✅ Link de afiliado gerado com sucesso (REST V2): {url}")
+                elif link_resp_rest.get("response") and "shortLink" in link_resp_rest["response"]:
+                    url = link_resp_rest["response"]["shortLink"]
+                    print(f"✅ Link de afiliado gerado com sucesso (REST V1): {url}")
+                else:
+                    erro_api = link_resp_rest.get('error', link_resp_rest.get('message', 'Erro na API'))
+                    print(f"⚠️ AVISO da Shopee: Não foi possível gerar o link de afiliado. Resposta: {erro_api}")
+
         except Exception as e_link:
             print(f"⚠️ Erro interno ao tentar gerar link de afiliado: {e_link}")
+    # ==============================================================
 
     if str(preco_atual) == str(preco_antigo): preco_antigo = None
 
