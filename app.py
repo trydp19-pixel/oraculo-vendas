@@ -74,7 +74,6 @@ def salvar_cupom(loja, codigo, tipo, valor, maximo):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # Se o cupom já existe, deleta o antigo para que o novo registro vá para o topo (maior ID)
         cursor.execute("SELECT id FROM cupons_salvos WHERE loja=? AND codigo=? AND tipo=? AND valor=? AND maximo=?", (loja, codigo, tipo, valor, maximo))
         res = cursor.fetchone()
         if res:
@@ -129,11 +128,10 @@ def preco_valido(p):
     except:
         return False
 
-# --- MERCADO LIVRE (INTACTO) ---
+# --- MERCADO LIVRE ---
 def extrair_mercadolivre(url, ml_token=None):
     print("\n" + "="*50)
     print(f"🕵️ INICIANDO RASTREIO MERCADO LIVRE")
-    print(f"🔗 Link Original: {url}")
     
     headers_base = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
@@ -141,31 +139,24 @@ def extrair_mercadolivre(url, ml_token=None):
     }
     
     try:
-        print("🕵️ Resolvendo link curto como cliente fantasma...")
         resp_resolve = requests.get(url, headers=headers_base, allow_redirects=True, timeout=10)
         url_final = resp_resolve.url
-        print(f"🔗 Link Real Encontrado: {url_final}")
     except:
         url_final = url
-        print("⚠️ Falha ao resolver link curto. Usando original.")
 
     sessao = requests.Session()
     if ml_token:
-        print("🔑 Token VIP ML detectado. Injetando cookies...")
         try:
             cookie_str = base64.b64decode(ml_token).decode('utf-8')
             if "=" in cookie_str:
                 k, v = cookie_str.split("=", 1)
                 sessao.cookies.set(k, v, domain=".mercadolivre.com.br")
                 sessao.cookies.set(k, v, domain=".mercadolibre.com")
-                print("✅ Cookie injetado.")
         except: pass
 
     try:
         resp = sessao.get(url_final, headers=headers_base, allow_redirects=True, timeout=15)
         html_resp = resp.text
-        print(f"🌐 HTML Status Final: {resp.status_code}")
-        
         soup = BeautifulSoup(html_resp, 'html.parser')
         
         if '/social/' in url_final:
@@ -175,29 +166,20 @@ def extrair_mercadolivre(url, ml_token=None):
                 href = a['href']
                 if '/p/' in href or 'MLB' in href:
                     url_real = href
-                    print(f"🎯 Botão 'Ir para Produto' encontrado: {url_real}")
                     break
-            
             if not url_real:
                 canonico = soup.find('link', rel='canonical')
-                if canonico and canonico.get('href'):
-                    url_real = canonico['href']
-                    print(f"🎯 Link Canônico Encontrado: {url_real}")
-
+                if canonico and canonico.get('href'): url_real = canonico['href']
             if url_real:
-                if url_real.startswith('/'):
-                    url_real = "https://www.mercadolivre.com.br" + url_real
+                if url_real.startswith('/'): url_real = "https://www.mercadolivre.com.br" + url_real
                 url_final = url_real
-                print("🔄 Baixando página original do produto...")
                 resp = sessao.get(url_final, headers=headers_base, timeout=15)
                 html_resp = resp.text
                 soup = BeautifulSoup(html_resp, 'html.parser')
-                print("✅ Página original carregada.")
     except Exception as e:
-        print(f"❌ Erro ao baixar HTML: {e}")
         return None
 
-    titulo, preco_atual, preco_antigo, foto_url = "Produto Mercado Livre", None, None, None
+    titulo, preco_atual, preco_antigo, foto_url, descricao = "Produto Mercado Livre", None, None, None, ""
 
     def extrair_valor_da_tag(tag):
         if not tag: return None
@@ -214,6 +196,10 @@ def extrair_mercadolivre(url, ml_token=None):
         if t_meta: titulo = t_meta['content']
         i_meta = soup.find('meta', property='og:image')
         if i_meta: foto_url = i_meta['content']
+        
+        # Extraindo descrição para dar inteligência à IA
+        d_meta = soup.find('meta', attrs={'name': 'description'}) or soup.find('meta', property='og:description')
+        if d_meta: descricao = d_meta.get('content', '')[:800]
 
         meta_p = soup.find('meta', itemprop='price')
         if meta_p and preco_valido(meta_p.get('content')): preco_atual = meta_p['content']
@@ -245,23 +231,9 @@ def extrair_mercadolivre(url, ml_token=None):
                     if preco_valido(p):
                         preco_atual = p
                         break
-        
-        if not preco_atual:
-            for script in soup.find_all('script', type='application/ld+json'):
-                try:
-                    data = json.loads(script.string)
-                    if '@type' in data and data['@type'] in ['Product', 'ProductGroup'] and 'offers' in data:
-                        offers = data['offers']
-                        if isinstance(offers, dict): p = offers.get('price') or offers.get('lowPrice')
-                        elif isinstance(offers, list) and len(offers) > 0: p = offers[0].get('price')
-                        if preco_valido(p): preco_atual = p
-                except: pass
-                
-        print(f"👁️‍🗨️ Preço HTML: Atual={preco_atual} | Antigo={preco_antigo}")
     except: pass
 
     if not preco_atual or not foto_url or not preco_antigo:
-        print("🤖 Acionando API ML...")
         match = re.search(r'MLB[-_]?(\d+)', url_final, re.IGNORECASE)
         if match:
             mlb_id = match.group(0).upper().replace('-', '').replace('_', '')
@@ -270,6 +242,7 @@ def extrair_mercadolivre(url, ml_token=None):
                     api_url = f"https://api.mercadolibre.com/products/{mlb_id}"
                     dados = sessao.get(api_url, headers=headers_base, timeout=10).json()
                     if titulo == "Produto Mercado Livre": titulo = dados.get('name', titulo)
+                    if not descricao: descricao = dados.get('short_description', '')[:800]
                     if 'buy_box_winner' in dados and dados['buy_box_winner']:
                         bbw = dados['buy_box_winner']
                         if not preco_atual and preco_valido(bbw.get('price')): preco_atual = bbw.get('price')
@@ -292,52 +265,34 @@ def extrair_mercadolivre(url, ml_token=None):
                     if not foto_url and dados.get('pictures'): foto_url = dados['pictures'][0]['url']
             except: pass
 
-    print(f"🏁 FIM ML -> Titulo: {titulo[:15]} | Atual: {preco_atual} | Antigo: {preco_antigo}")
-    print("="*50 + "\n")
     if str(preco_atual) == str(preco_antigo): preco_antigo = None
 
     return {
-        "titulo": titulo, "preco_atual": formatar_moeda(preco_atual) if preco_atual else "Ver no site", 
+        "titulo": titulo, "descricao": descricao, "preco_atual": formatar_moeda(preco_atual) if preco_atual else "Ver no site", 
         "preco_antigo": formatar_moeda(preco_antigo) if preco_antigo else None, "foto_url": foto_url, "link": url
     }
 
 # --- AMAZON ---
 def extrair_amazon(url, token=None):
     print("\n" + "="*50)
-    print(f"🕵️ INICIANDO RASTREIO AMAZON (MODO DEBUG PROFUNDO)")
-    print(f"🔗 Link Original: {url}")
+    print(f"🕵️ INICIANDO RASTREIO AMAZON")
     
     headers_list = [
-        {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'pt-BR,pt;q=0.9',
-        },
-        {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'pt-BR,pt;q=0.9'
-        }
+        {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Accept-Language': 'pt-BR,pt;q=0.9'},
+        {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1', 'Accept-Language': 'pt-BR,pt;q=0.9'}
     ]
     
     try:
         resp_resolve = requests.get(url, headers=headers_list[0], allow_redirects=True, timeout=10)
         url_final = resp_resolve.url
-    except:
-        url_final = url
+    except: url_final = url
 
-    # LIMPEZA DE URL
     match_asin = re.search(r'/(?:dp|gp/product)/([A-Z0-9]{10})', url_final)
-    if not match_asin:
-        match_asin = re.search(r'([A-Z0-9]{10})', url_final)
-    if match_asin:
-        url_final = f"https://www.amazon.com.br/dp/{match_asin.group(1)}"
-        print(f"🧹 URL Limpa: {url_final}")
+    if not match_asin: match_asin = re.search(r'([A-Z0-9]{10})', url_final)
+    if match_asin: url_final = f"https://www.amazon.com.br/dp/{match_asin.group(1)}"
 
     sessao = requests.Session()
-
     if token:
-        print("🔑 [DEBUG] Token VIP Amazon detectado. Injetando...")
         try:
             cookie_str = base64.b64decode(token).decode('utf-8')
             for cookie_part in cookie_str.split(';'):
@@ -345,44 +300,23 @@ def extrair_amazon(url, token=None):
                     k, v = cookie_part.strip().split("=", 1)
                     sessao.cookies.set(k, v, domain=".amazon.com.br")
                     sessao.cookies.set(k, v, domain="www.amazon.com.br")
-            print("✅ [DEBUG] Cookie(s) Amazon injetado(s) com sucesso.")
-        except Exception as e:
-            print(f"⚠️ [DEBUG] Falha ao injetar Token da Amazon: {e}")
+        except: pass
 
     html = ""
     for idx, headers in enumerate(headers_list):
-        print(f"🤖 [DEBUG] Tentando acessar com máscara {idx+1}...")
         try:
             resp = sessao.get(url_final, headers=headers, timeout=15)
             html = resp.text
-            print(f"🌐 [DEBUG] Código de Status HTTP: {resp.status_code}")
-            print(f"📦 [DEBUG] Tamanho do HTML retornado: {len(html)} caracteres")
-            
-            if "api-services-support@amazon.com" not in html and "captcha" not in html.lower() and "bot check" not in html.lower():
-                print("✅ [DEBUG] Acesso concedido! (Sem CAPTCHA explícito)")
-                break
-            else:
-                print("🚨 [DEBUG] ALERTA: CAPTCHA ou Bloqueio detectado no HTML retornado!")
-        except Exception as e: 
-            print(f"❌ [DEBUG] Erro de conexão: {e}")
-            
-    try:
-        with open("debug_amazon_html.txt", "w", encoding="utf-8") as f:
-            f.write(html)
-        print("📁 [DEBUG] HTML bruto salvo no arquivo 'debug_amazon_html.txt'. Verifique este arquivo para ver se os preços estão lá!")
-    except Exception as e:
-        print(f"⚠️ [DEBUG] Não foi possível salvar o arquivo de log do HTML: {e}")
-
-    if "R$" in html:
-        print("💵 [DEBUG] Símbolo 'R$' ENCONTRADO no código-fonte.")
-    else:
-        print("🛑 [DEBUG] Símbolo 'R$' NÃO ENCONTRADO em nenhum lugar da página! A Amazon ocultou o preço do HTML bruto.")
+            if "api-services-support@amazon.com" not in html and "captcha" not in html.lower(): break
+        except: pass
 
     soup = BeautifulSoup(html, 'html.parser')
-    
     titulo_tag = soup.find(id='productTitle') or soup.find('span', id='productTitle')
     titulo = titulo_tag.text.strip() if titulo_tag else 'Produto Amazon'
-    print(f"🏷️ [DEBUG] Título capturado: {titulo[:30]}...")
+    
+    descricao = ""
+    d_meta = soup.find('meta', attrs={'name': 'description'})
+    if d_meta: descricao = d_meta.get('content', '')[:800]
     
     preco_atual, preco_antigo = None, None
 
@@ -391,116 +325,90 @@ def extrair_amazon(url, token=None):
         match = re.search(r'(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}|\d+(?:\.\d{2})?)', texto.replace('\xa0', ' '))
         if not match: return None
         clean = match.group(1)
-        if ',' in clean and '.' in clean:
-            clean = clean.replace('.', '').replace(',', '.')
-        elif ',' in clean:
-            clean = clean.replace(',', '.')
+        if ',' in clean and '.' in clean: clean = clean.replace('.', '').replace(',', '.')
+        elif ',' in clean: clean = clean.replace(',', '.')
         try:
             val = float(clean)
             return str(val) if val > 0 else None
         except: return None
 
-    print("🕵️ [DEBUG] Iniciando varredura por Regex (Twister/Attach/JS)...")
     match_twister = re.search(r'id="twister-plus-price-data-price"[^>]+value="([\d.]+)"', html)
-    print(f"   [DEBUG] Resultado Regex Twister: {match_twister.group(1) if match_twister else 'Nada'}")
     if match_twister:
         try:
-            val = float(match_twister.group(1))
-            if val > 0: preco_atual = str(val)
+            if float(match_twister.group(1)) > 0: preco_atual = str(float(match_twister.group(1)))
         except: pass
         
     if not preco_atual:
         match_attach = re.search(r'id="attach-base-product-price"[^>]+value="([\d.]+)"', html)
-        print(f"   [DEBUG] Resultado Regex Attach: {match_attach.group(1) if match_attach else 'Nada'}")
         if match_attach:
             try:
-                val = float(match_attach.group(1))
-                if val > 0: preco_atual = str(val)
+                if float(match_attach.group(1)) > 0: preco_atual = str(float(match_attach.group(1)))
             except: pass
 
     if not preco_atual:
         match_js = re.search(r'"priceAmount":\s*([\d.]+)', html)
-        print(f"   [DEBUG] Resultado Regex JS priceAmount: {match_js.group(1) if match_js else 'Nada'}")
         if match_js:
             try:
-                val = float(match_js.group(1))
-                if val > 0: preco_atual = str(val)
+                if float(match_js.group(1)) > 0: preco_atual = str(float(match_js.group(1)))
             except: pass
 
-    print("🕵️ [DEBUG] Iniciando varredura por DOM (Zonas Seguras)...")
-    def extract_from_block(block, nome_bloco=""):
+    def extract_from_block(block):
         if not block: return None
         offscreen = block.find('span', class_='a-offscreen')
-        if offscreen: 
-            print(f"   [DEBUG] Encontrado no bloco {nome_bloco} via 'a-offscreen': {offscreen.text}")
-            return parse_brl(offscreen.text)
-        
+        if offscreen: return parse_brl(offscreen.text)
         whole = block.find('span', class_='a-price-whole')
         frac = block.find('span', class_='a-price-fraction')
         if whole:
             w = re.sub(r'[^\d]', '', whole.text)
             f = re.sub(r'[^\d]', '', frac.text) if frac else '00'
-            if w: 
-                print(f"   [DEBUG] Encontrado no bloco {nome_bloco} via 'a-price-whole': {w},{f}")
-                return f"{w}.{f}"
-        
-        print(f"   [DEBUG] Tentando Parse_BRL direto no texto do bloco {nome_bloco}...")
+            if w: return f"{w}.{f}"
         return parse_brl(block.text)
 
-    safe_zones = [
-        ('centerCol', soup.find('div', id='centerCol')),
-        ('rightCol', soup.find('div', id='rightCol')),
-        ('desktop_buybox', soup.find('div', id='desktop_buybox')),
-        ('buybox', soup.find('div', id='buybox'))
-    ]
+    safe_zones = [soup.find('div', id='centerCol'), soup.find('div', id='rightCol'), soup.find('div', id='desktop_buybox'), soup.find('div', id='buybox')]
 
     if not preco_atual:
-        for nome_zona, zone in safe_zones:
+        for zone in safe_zones:
             if not zone: continue
             apex = zone.find('span', class_=re.compile(r'apexPriceToPay|priceToPay'))
             if apex:
-                print(f"   [DEBUG] Tag apexPriceToPay encontrada na zona {nome_zona}")
-                p = extract_from_block(apex, "apexPriceToPay")
+                p = extract_from_block(apex)
                 if p: 
                     preco_atual = p
                     break
     
     if not preco_atual:
-        for nome_zona, zone in safe_zones:
+        for zone in safe_zones:
             if not zone: continue
             core = zone.find('div', id=re.compile(r'corePriceDisplay_desktop_feature_div|corePrice_desktop|corePrice_feature_div'))
             if core:
-                print(f"   [DEBUG] Container corePrice encontrado na zona {nome_zona}")
                 for price_span in core.find_all('span', class_='a-price'):
                     if 'a-text-price' in price_span.get('class', []): continue
-                    p = extract_from_block(price_span, "corePrice > a-price")
+                    p = extract_from_block(price_span)
                     if p:
                         preco_atual = p
                         break
             if preco_atual: break
 
-    print("🕵️ [DEBUG] Buscando Preço Antigo...")
     match_basis = re.search(r'class="a-text-price"[^>]*>\s*<span class="a-offscreen">R\$\s*([\d.,]+)</span>', html)
     if match_basis:
-        print(f"   [DEBUG] Preço antigo achado via Regex basis: {match_basis.group(1)}")
         p_ant = parse_brl(match_basis.group(1))
         if p_ant: preco_antigo = p_ant
 
     if not preco_antigo:
-        for nome_zona, zone in safe_zones:
+        for zone in safe_zones:
             if not zone: continue
             basis = zone.find('span', class_=re.compile(r'basisPrice'))
             if basis:
-                preco_antigo = extract_from_block(basis, "basisPrice")
+                preco_antigo = extract_from_block(basis)
                 if preco_antigo: break
                 
     if not preco_antigo:
-        for nome_zona, zone in safe_zones:
+        for zone in safe_zones:
             if not zone: continue
             for old_span in zone.find_all('span', class_=re.compile(r'a-text-price|a-strike')):
                 pt = old_span.parent.text.lower() if old_span.parent else ""
                 if 'de:' in pt or 'a-strike' in old_span.get('class', []) or old_span.find('span', class_='a-strike'):
-                    p = extract_from_block(old_span, "a-strike / de:")
+                    p = extract_from_block(old_span)
                     if p:
                         preco_antigo = p
                         break
@@ -508,9 +416,7 @@ def extrair_amazon(url, token=None):
 
     if preco_atual and preco_antigo:
         try:
-            if float(preco_antigo) <= float(preco_atual):
-                print("   [DEBUG] Rejeitado: Preço antigo menor ou igual ao atual.")
-                preco_antigo = None
+            if float(preco_antigo) <= float(preco_atual): preco_antigo = None
         except: pass
 
     if str(preco_atual) == str(preco_antigo): preco_antigo = None
@@ -522,65 +428,42 @@ def extrair_amazon(url, token=None):
         meta_img = soup.find('meta', property='og:image')
         if meta_img: foto_url = meta_img.get('content')
         
-    if not foto_url:
-        match_img = re.search(r'"large":"(https://m\.media-amazon\.com/images/I/[^"]+)"', html)
-        if match_img: foto_url = match_img.group(1)
-    
-    print(f"🏁 FIM AMAZON -> Titulo: {titulo[:15]}... | Atual: {preco_atual} | Antigo: {preco_antigo}")
-    print("="*50 + "\n")
-    
     return {
-        "titulo": titulo, 
+        "titulo": titulo, "descricao": descricao,
         "preco_atual": formatar_moeda(preco_atual) if preco_atual else "Ver no site", 
         "preco_antigo": formatar_moeda(preco_antigo) if preco_antigo else None, 
-        "foto_url": foto_url, 
-        "link": url
+        "foto_url": foto_url, "link": url
     }
 
-# --- SHOPEE E MAGALU ---
+# --- SHOPEE ---
 def extrair_shopee(url):
     print("\n" + "="*50)
     print(f"🕵️ INICIANDO RASTREIO SHOPEE")
-    print(f"🔗 Link Original: {url}")
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9',
-        'Connection': 'keep-alive'
+        'Accept-Language': 'pt-BR,pt;q=0.9'
     }
     
     try:
         resp_resolve = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
         url_final = resp_resolve.url
-        print(f"🔗 Link Real Encontrado: {url_final}")
-    except:
-        url_final = url
-        print("⚠️ Falha ao resolver link curto. Usando original.")
+    except: url_final = url
 
     url_limpa = url_final.split('?')[0]
-    print(f"🧹 URL Limpa para extração: {url_limpa}")
 
-    titulo = "Produto Shopee"
-    preco_atual = None
-    preco_antigo = None
-    foto_url = None
+    titulo, descricao, preco_atual, preco_antigo, foto_url = "Produto Shopee", "", None, None, None
 
     match = re.search(r'i\.(\d+)\.(\d+)', url_limpa)
     if not match:
         shop_match = re.search(r'shopid=(\d+)', url_limpa, re.IGNORECASE)
         item_match = re.search(r'itemid=(\d+)', url_limpa, re.IGNORECASE)
-        if shop_match and item_match:
-            shop_id, item_id = shop_match.group(1), item_match.group(1)
-        else:
-            shop_id, item_id = None, None
-    else:
-        shop_id, item_id = match.group(1), match.group(2)
+        if shop_match and item_match: shop_id, item_id = shop_match.group(1), item_match.group(1)
+        else: shop_id, item_id = None, None
+    else: shop_id, item_id = match.group(1), match.group(2)
 
     if shop_id and item_id:
-        print(f"🎯 ShopID: {shop_id} | ItemID: {item_id}")
-        
-        print("🕵️ Acionando API Pública da Shopee...")
         api_url = f"https://shopee.com.br/api/v4/item/get?itemid={item_id}&shopid={shop_id}"
         headers_api = headers.copy()
         headers_api['Accept'] = 'application/json'
@@ -592,24 +475,17 @@ def extrair_shopee(url):
                 if 'data' in dados and dados['data']:
                     item_data = dados['data']
                     titulo = item_data.get('name', titulo)
-                    
+                    descricao = item_data.get('description', '')[:800]
                     p_atual_raw = item_data.get('price')
                     p_antigo_raw = item_data.get('price_before_discount')
-                    
                     if p_atual_raw: preco_atual = str(p_atual_raw / 100000)
                     if p_antigo_raw: preco_antigo = str(p_antigo_raw / 100000)
-                    
                     foto_id = item_data.get('image')
                     if foto_id: foto_url = f"https://cf.shopee.com.br/file/{foto_id}"
-        except Exception as e:
-            print(f"❌ Erro na API Pública Shopee: {e}")
+        except: pass
 
     if not preco_atual or titulo == "Produto Shopee":
-        print("🕵️ Acionando Fallback: Leitura Bruta com Máscara Googlebot...")
-        headers_bot = {
-            'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        }
+        headers_bot = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', 'Accept': '*/*'}
         try:
             html_resp = requests.get(url_limpa, headers=headers_bot, timeout=15).text
             soup = BeautifulSoup(html_resp, 'html.parser')
@@ -617,13 +493,16 @@ def extrair_shopee(url):
             t = soup.find('title')
             if t: titulo = t.text.replace(' | Shopee Brasil', '').strip()
             
+            d_meta = soup.find('meta', attrs={'name': 'description'})
+            if d_meta: descricao = d_meta.get('content', '')[:800]
+            
             for script in soup.find_all('script', type='application/ld+json'):
                 try:
                     data = json.loads(script.string)
                     if isinstance(data, dict) and data.get('@type') == 'Product':
                         titulo = data.get('name', titulo)
-                        if not foto_url and data.get('image'):
-                            foto_url = data['image']
+                        if not descricao and data.get('description'): descricao = data['description'][:800]
+                        if not foto_url and data.get('image'): foto_url = data['image']
                         if 'offers' in data:
                             preco_seo = data['offers'].get('price')
                             if preco_seo: preco_atual = str(preco_seo)
@@ -631,100 +510,57 @@ def extrair_shopee(url):
             
             if not preco_atual:
                 match_price = re.search(r'"price":\s*(\d{5,})', html_resp)
-                if match_price:
-                    preco_atual = str(float(match_price.group(1)) / 100000)
-                    
+                if match_price: preco_atual = str(float(match_price.group(1)) / 100000)
             if not preco_antigo:
                 match_old = re.search(r'"price_before_discount":\s*(\d{5,})', html_resp)
-                if match_old:
-                    preco_antigo = str(float(match_old.group(1)) / 100000)
-                    
+                if match_old: preco_antigo = str(float(match_old.group(1)) / 100000)
             if not foto_url:
                 i_meta = soup.find('meta', property='og:image')
                 if i_meta: foto_url = i_meta['content']
-        except Exception as e:
-            print(f"❌ Erro no Fallback HTML da Shopee: {e}")
+        except: pass
 
-    # ==============================================================
-    # 🔗 GERADOR DE LINK DE AFILIADO - SISTEMA ATUALIZADO E BLINDADO
-    # ==============================================================
     if SHOPEE_APP_ID and SHOPEE_APP_SECRET:
-        print("🔑 Chaves de API detectadas! Solicitando Link Curto de Afiliado...")
         try:
             timestamp = int(time.time())
-            
-            # Tentativa 1: Porta mais moderna (GraphQL)
-            path_graphql = "/api/v2/affiliate/graphql"
-            base_string_graphql = f"{SHOPEE_APP_ID}{path_graphql}{timestamp}"
-            sign_graphql = hmac.new(SHOPEE_APP_SECRET.encode('utf-8'), base_string_graphql.encode('utf-8'), hashlib.sha256).hexdigest()
-            
-            api_graphql_url = f"https://partner.shopeemobile.com{path_graphql}?partner_id={SHOPEE_APP_ID}&timestamp={timestamp}&sign={sign_graphql}"
-            
-            payload_graphql = {
-                "query": f'mutation {{ generateShortLink(input: {{originUrl: "{url_limpa}"}}) {{ shortLink }} }}'
-            }
+            path_link = "/api/v2/affiliate/generate_short_link"
+            base_string_link = f"{SHOPEE_APP_ID}{path_link}{timestamp}"
+            sign_link = hmac.new(SHOPEE_APP_SECRET.encode('utf-8'), base_string_link.encode('utf-8'), hashlib.sha256).hexdigest()
+            api_link_url = f"https://partner.shopeemobile.com{path_link}?partner_id={SHOPEE_APP_ID}&timestamp={timestamp}&sign={sign_link}"
             headers_post = {'Content-Type': 'application/json'}
             
-            link_resp = requests.post(api_graphql_url, json=payload_graphql, headers=headers_post, timeout=10).json()
+            payload_graphql = {"query": f'mutation {{\n  generateShortLink(input: {{originUrl: "{url_limpa}"}}) {{\n    shortLink\n  }}\n}}'}
+            link_resp = requests.post(api_link_url, json=payload_graphql, headers=headers_post, timeout=10).json()
             
             novo_link = None
             if link_resp.get("data") and link_resp["data"].get("generateShortLink"):
                 novo_link = link_resp["data"]["generateShortLink"].get("shortLink")
             
-            if novo_link:
-                url = novo_link
-                print(f"✅ Link de afiliado gerado com sucesso (GraphQL): {url}")
-            else:
-                # Tentativa 2: Porta tradicional (REST)
-                print("🔄 Tentando Fallback para endpoint REST normal...")
-                path_link = "/api/v2/affiliate/generate_short_link"
-                base_string_link = f"{SHOPEE_APP_ID}{path_link}{timestamp}"
-                sign_link = hmac.new(SHOPEE_APP_SECRET.encode('utf-8'), base_string_link.encode('utf-8'), hashlib.sha256).hexdigest()
-                api_link_url = f"https://partner.shopeemobile.com{path_link}?partner_id={SHOPEE_APP_ID}&timestamp={timestamp}&sign={sign_link}"
-                
-                payload_rest = {"originUrl": url_limpa}
-                link_resp_rest = requests.post(api_link_url, json=payload_rest, headers=headers_post, timeout=10).json()
-                
-                if link_resp_rest.get("data") and "shortLink" in link_resp_rest["data"]:
-                    url = link_resp_rest["data"]["shortLink"]
-                    print(f"✅ Link de afiliado gerado com sucesso (REST V2): {url}")
-                elif link_resp_rest.get("response") and "shortLink" in link_resp_rest["response"]:
-                    url = link_resp_rest["response"]["shortLink"]
-                    print(f"✅ Link de afiliado gerado com sucesso (REST V1): {url}")
-                else:
-                    erro_api = link_resp_rest.get('error', link_resp_rest.get('message', 'Erro na API'))
-                    print(f"⚠️ AVISO da Shopee: Não foi possível gerar o link de afiliado. Resposta: {erro_api}")
-
-        except Exception as e_link:
-            print(f"⚠️ Erro interno ao tentar gerar link de afiliado: {e_link}")
-    # ==============================================================
+            if not novo_link:
+                link_resp = requests.post(api_link_url, json={"originUrl": url_limpa}, headers=headers_post, timeout=10).json()
+                if link_resp.get("data") and "shortLink" in link_resp["data"]: novo_link = link_resp["data"]["shortLink"]
+                elif link_resp.get("response") and "shortLink" in link_resp["response"]: novo_link = link_resp["response"]["shortLink"]
+            
+            if novo_link: url = novo_link
+        except: pass
 
     if str(preco_atual) == str(preco_antigo): preco_antigo = None
 
-    print(f"🏁 FIM SHOPEE -> Titulo: {titulo[:15]}... | Atual: {preco_atual} | Antigo: {preco_antigo}")
-    print("="*50 + "\n")
-
     return {
-        "titulo": titulo, 
+        "titulo": titulo, "descricao": descricao,
         "preco_atual": formatar_moeda(preco_atual) if preco_atual else "Ver no site", 
         "preco_antigo": formatar_moeda(preco_antigo) if preco_antigo else None, 
-        "foto_url": foto_url, 
-        "link": url
+        "foto_url": foto_url, "link": url
     }
 
 def extrair_magalu(url):
-    return {"titulo": "Produto Magalu", "preco_atual": "Ver no site", "preco_antigo": None, "foto_url": None, "link": url}
+    return {"titulo": "Produto Magalu", "descricao": "", "preco_atual": "Ver no site", "preco_antigo": None, "foto_url": None, "link": url}
 
 def extrair_dados_loja(url, ml_token=None):
     url = url.strip() 
-    if "mercadolivre" in url or "meli.la" in url:
-        return extrair_mercadolivre(url, ml_token)
-    elif "amazon" in url or "amzn.to" in url:
-        return extrair_amazon(url, ml_token) 
-    elif "shopee" in url or "shp.ee" in url or "shope.ee" in url:
-        return extrair_shopee(url)
-    elif "magazineluiza" in url or "magalu" in url:
-        return extrair_magalu(url)
+    if "mercadolivre" in url or "meli.la" in url: return extrair_mercadolivre(url, ml_token)
+    elif "amazon" in url or "amzn.to" in url: return extrair_amazon(url, ml_token) 
+    elif "shopee" in url or "shp.ee" in url or "shope.ee" in url: return extrair_shopee(url)
+    elif "magazineluiza" in url or "magalu" in url: return extrair_magalu(url)
     return None
 
 # ==========================================
@@ -733,37 +569,30 @@ def extrair_dados_loja(url, ml_token=None):
 PROMPT_CRIADOR_DINAMICO = """
 Aja como um gênio do copywriting e rei das sacadas de internet. Seu trabalho é vender produtos no WhatsApp para brasileiros, usando uma linguagem do dia a dia, afiada e zero corporativa.
 
-# 🚨 PASSO 1: ENTENDA A REALIDADE DO PRODUTO
+# 🚨 PASSO 1: ENTENDA A REALIDADE DO PRODUTO E SUAS ESPECIFICAÇÕES
 PRODUTO ALVO: {PRODUTO}
-Pense: Para que serve isso na vida real? Qual é a utilidade crua, a preguiça que ele resolve ou a vaidade que ele atende? A sua frase DEVE ter total conexão com a utilidade do produto.
+DETALHES DA LOJA: {DESCRICAO}
+Pense: Quais são as especificações reais dele? (Ex: É uma TV de 32" ou de 70"? É 110V ou Bivolt? Tem quantos Litros?). Use essas informações para NÃO ser genérico. Uma TV 32" não é um cinema. Adapte a sacada ao tamanho, capacidade e utilidade EXATA do produto.
 
 # 🚨 PASSO 2: GERAÇÃO DAS FRASES
-Gere 8 FRASES INÉDITAS (entre 3 a 10 palavras), divididas RIGOROSAMENTE nestes dois estilos:
+Gere 8 FRASES INÉDITAS (entre 5 a 15 palavras), divididas RIGOROSAMENTE nestes dois estilos:
 
 🎯 ESTILO 1: IMPACTO / DESEJO / DOR DIRETA (Exatamente 4 opções)
 Foco em bater na dor ou na necessidade imediata. Linguagem informal e forte.
-(EXEMPLOS - NÃO OS COPIE):
-- Lavadora de Pressão -> "CHEGA DE PASSAR VERGONHA COM SEU CARRO SUJO"
-- Cadeira -> "O FIM DA SUA DOR NAS COSTAS"
-- Produto Durável -> "PRA VOCÊ PARAR DE GASTAR COM DESCARTÁVEL"
 
 🎯 ESTILO 2: O DEBOCHADO / SINCERÃO / SACADA GENIAL (Exatamente 4 opções)
-Aqui é onde você brilha. Humor ácido, ironia pura, papo de rua. Tire sarro do uso do produto, da preguiça humana ou zoe o comprador. NADA DE PARECER VENDEDOR DE LOJA. Tem que ter sacada!
-(EXEMPLOS DO NÍVEL DE CRIATIVIDADE EXIGIDO - CRIE OUTROS BASEADOS NO PRODUTO):
+Humor ácido, ironia pura, papo de rua. Tire sarro do uso do produto ou zoe o comprador. Tem que ter sacada ligada às especificações do produto! NADA DE PARECER VENDEDOR DE LOJA.
+(EXEMPLOS DO NÍVEL DE CRIATIVIDADE EXIGIDO):
 - Talheres -> "JÁ PODE PARAR DE COMER COM A MÃO"
-- Camisa de Treino -> "NOVO INCENTIVO PRA TU IR TREINAR"
 - Perfume Masculino Doce -> "CHEIRINHO DE HOMEM QUE NÃO PRESTA"
 - Sabonete Facial -> "JÁ FEZ SUA SKIN CARE HOJE?"
-- Tênis -> "SÓ PRA QUEM TEM ESTILO"
-- Cueca Boxer -> "CHEGA DE USAR ASA DELTA"
 - Ferramenta -> "PRA DAR AQUELE TRATO NO SEU FUSCA"
 
-# 🚨 O QUE É EXTREMAMENTE PROIBIDO (SE USAR, SERÁ DEMITIDO): 
-1. PROIBIDO FALAR COMO CATÁLOGO DE LOJA: NUNCA use frases genéricas e cafonas como "Conforto e estilo", "Ideal para o dia a dia", "Perfeita para todas as ocasiões", "Liberdade de movimento", "Sua aliada contra o calor". ISSO É CHATO. Seja informal, direto e inteligente.
-2. PROIBIDO usar palavras como: "Precinho", "Imperdível", "Qualidade", "Estilo em uma só peça".
+# 🚨 O QUE É EXTREMAMENTE PROIBIDO: 
+1. PROIBIDO FALAR COMO CATÁLOGO: NUNCA use frases genéricas como "Conforto e estilo", "Ideal para o dia a dia", "Aproveite a qualidade". ISSO É CHATO. Seja informal e inteligente.
+2. PROIBIDO usar: "Precinho", "Imperdível", "Qualidade", "Estoque".
 3. SEM PONTO DE EXCLAMAÇÃO (!).
-4. O usuário ODEIA as seguintes frases (NUNCA as repita):
-"TECIDO LEVE, IDEAL PARA O SEU DIA A DIA", "PARA QUEM BUSCA CONFORTO SEM ABRIR MÃO DO ESTILO", "A TECH LIGHT: SUA ALIADA CONTRA O CALOR", "LIBERDADE DE MOVIMENTO COM TOQUE MACIO", {EXEMPLOS_NEGATIVOS}
+4. O usuário ODEIA as seguintes frases (NUNCA as repita): {EXEMPLOS_NEGATIVOS}
 
 # ✅ INSPIRAÇÃO (Frases que o usuário gostou): 
 {EXEMPLOS_POSITIVOS}
@@ -773,17 +602,19 @@ PROMPT_JUIZ_EDITOR = """
 Você é o Editor-Chefe.
 Sua missão é extrair as frases geradas e formatar estritamente no JSON solicitado.
 OBRIGATÓRIO: O Array 'frases_vendedor' DEVE conter EXATAMENTE 4 frases e o Array 'frases_zoeira' DEVE conter EXATAMENTE 4 frases. 
-As frases devem ter entre 3 a 10 palavras e não conter ponto de exclamação.
+As frases devem ter entre 5 a 15 palavras e não conter ponto de exclamação.
 
-É ESTRITAMENTE PROIBIDO aprovar frases com cara de catálogo de loja de shopping (ex: "Conforto e estilo", "Ideal para o dia a dia", "Liberdade de movimento"). As frases DEVEM ter uma sacada inteligente, humor ácido ou resolver uma dor direta.
+É ESTRITAMENTE PROIBIDO aprovar frases com cara de catálogo de loja (ex: "Conforto e estilo", "Ideal para o dia a dia"). As frases DEVEM ter uma sacada inteligente baseada na DESCRIÇÃO DO PRODUTO.
 
 # PRODUTO ORIGINAL: {PRODUTO}
+# DETALHES DA LOJA: {DESCRICAO}
 # RASCUNHOS GERADOS: {FRASES_CANDIDATAS}
-# REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Celular", "Esmerilhadeira", "Notebook"). MANTENHA a Marca, o Modelo, a quantidade (se for Kit) e Destaque 1 a 2 ESPECIFICAÇÕES TÉCNICAS RELEVANTES (ex: "GPS Integrado", "256GB"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). Formate TUDO separando por hífen (Ex: Tipo do Produto - Marca Modelo - Especificação 1).
-# REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS para fins de cálculo de custo por unidade. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), peças de um conjunto (ex: "Jogo de Panelas 5 Peças" = 1), ferramentas de um estojo ou acessórios. MUITO IMPORTANTE: Itens vendidos em "Pares" (ex: meias, sapatos, brincos) contam como 1 unidade. Se o kit diz "3 Pares", a quantidade total é 3. SÓ FRACIONE se for um kit de produtos idênticos repetidos. Retorne apenas o número inteiro.
+
+# REGRA DO TÍTULO (MUITO IMPORTANTE): OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Notebook", "Geladeira"). MANTENHA a Marca, o Modelo, a quantidade. É OBRIGATÓRIO ler os "DETALHES DA LOJA" e destacar ESPECIFICAÇÕES VITAIS no título (ex: "50 Polegadas", "110V", "Bivolt", "256GB", "400 Litros"). REMOVA palavras inúteis (ex: "Original", "Premium"). Formate TUDO separando por hífen (Ex: Tipo do Produto - Marca Modelo - Especificação Vital).
+# REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), ferramentas de um estojo ou acessórios. MUITO IMPORTANTE: Itens vendidos em "Pares" (ex: meias, sapatos) contam como 1 unidade. Se o kit diz "3 Pares", a quantidade é 3. SÓ FRACIONE se for um kit de produtos idênticos. Retorne apenas o número inteiro.
 """
 
-def executar_pipeline_universal(nome_produto):
+def executar_pipeline_universal(nome_produto, descricao_produto):
     fallback_frases = [
         "AÍ SIM FOI VANTAGEM", 
         "JÁ PODE APOSENTAR O VELHO", 
@@ -796,7 +627,7 @@ def executar_pipeline_universal(nome_produto):
         texto_positivos = "\n".join(positivos)
         texto_negativos = "\n".join(negativos)
         
-        prompt_gpt = PROMPT_CRIADOR_DINAMICO.replace("{PRODUTO}", nome_produto).replace("{EXEMPLOS_POSITIVOS}", texto_positivos).replace("{EXEMPLOS_NEGATIVOS}", texto_negativos)
+        prompt_gpt = PROMPT_CRIADOR_DINAMICO.replace("{PRODUTO}", nome_produto).replace("{DESCRICAO}", descricao_produto).replace("{EXEMPLOS_POSITIVOS}", texto_positivos).replace("{EXEMPLOS_NEGATIVOS}", texto_negativos)
         
         candidatas_brutas = None
         if openai_client:
@@ -815,7 +646,7 @@ def executar_pipeline_universal(nome_produto):
         if not candidatas_brutas: 
             return fallback_frases, nome_produto, 1
 
-        prompt_editor = PROMPT_JUIZ_EDITOR.replace("{PRODUTO}", nome_produto).replace("{FRASES_CANDIDATAS}", candidatas_brutas).replace("{EXEMPLOS_NEGATIVOS}", texto_negativos)
+        prompt_editor = PROMPT_JUIZ_EDITOR.replace("{PRODUTO}", nome_produto).replace("{DESCRICAO}", descricao_produto).replace("{FRASES_CANDIDATAS}", candidatas_brutas).replace("{EXEMPLOS_NEGATIVOS}", texto_negativos)
         schema = {
             "type": "OBJECT", 
             "properties": {
@@ -1026,9 +857,9 @@ if st.button("🚀 Gerar Postagem", type="primary", use_container_width=True):
 
         with st.spinner("Decodificando a loja..."):
             produto = extrair_dados_loja(link_input, ml_token=ml_token_input)
-            if not produto: produto = {"titulo": "Produto Não Identificado", "preco_atual": "Ver no site", "preco_antigo": None, "foto_url": None, "link": link_input}
+            if not produto: produto = {"titulo": "Produto Não Identificado", "descricao": "", "preco_atual": "Ver no site", "preco_antigo": None, "foto_url": None, "link": link_input}
             
-            frases, titulo_resumo, qtd_itens = executar_pipeline_universal(produto["titulo"])
+            frases, titulo_resumo, qtd_itens = executar_pipeline_universal(produto["titulo"], produto.get("descricao", ""))
             produto['quantidade'] = qtd_itens
             
             frase_vencedora = frases[0] if frases else "AÍ SIM FOI VANTAGEM"
