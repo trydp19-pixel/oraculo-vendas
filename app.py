@@ -10,22 +10,15 @@ import base64
 import urllib.parse
 import streamlit as st
 from bs4 import BeautifulSoup
-from openai import OpenAI
 from dotenv import load_dotenv
 
 # Carrega as chaves
 load_dotenv()
 
 GEMINI_KEY = os.getenv("GEMINI_KEY")
-CHATGPT_KEY = os.getenv("CHATGPT_KEY")
 SHOPEE_APP_ID = os.getenv("SHOPEE_APP_ID")
 SHOPEE_APP_SECRET = os.getenv("SHOPEE_APP_SECRET")
 ML_TOKEN = os.getenv("ML_TOKEN") 
-
-try: 
-    openai_client = OpenAI(api_key=CHATGPT_KEY)
-except: 
-    openai_client = None
 
 # ==========================================
 # 🗄️ MÓDULO DE BANCO DE DADOS
@@ -35,7 +28,6 @@ DB_PATH = "oraculo_memoria_v245.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS feedback (frase TEXT UNIQUE, produto TEXT, gostou INTEGER)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS cupons_salvos (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         loja TEXT, 
@@ -49,31 +41,11 @@ def init_db():
 
 init_db()
 
-def registrar_feedback(frase, produto, gostou):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO feedback (frase, produto, gostou) VALUES (?, ?, ?)", (frase, produto, gostou))
-        conn.commit()
-        conn.close()
-    except: pass
-
-def carregar_exemplos():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT produto, frase FROM feedback WHERE gostou = 1 ORDER BY ROWID DESC LIMIT 15")
-        positivos = [f"- [{row[0]}] -> \"{row[1]}\"" for row in cursor.fetchall()][::-1]
-        cursor.execute("SELECT produto, frase FROM feedback WHERE gostou = 0 ORDER BY ROWID DESC LIMIT 15")
-        negativos = [f"- [{row[0]}] -> \"{row[1]}\"" for row in cursor.fetchall()]
-        conn.close()
-        return positivos, negativos
-    except: return [], []
-
 def salvar_cupom(loja, codigo, tipo, valor, maximo):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        # Se o cupom já existe, deleta o antigo para que o novo registro vá para o topo (maior ID)
         cursor.execute("SELECT id FROM cupons_salvos WHERE loja=? AND codigo=? AND tipo=? AND valor=? AND maximo=?", (loja, codigo, tipo, valor, maximo))
         res = cursor.fetchone()
         if res:
@@ -197,7 +169,6 @@ def extrair_mercadolivre(url, ml_token=None):
         i_meta = soup.find('meta', property='og:image')
         if i_meta: foto_url = i_meta['content']
         
-        # Extraindo descrição para dar inteligência à IA
         d_meta = soup.find('meta', attrs={'name': 'description'}) or soup.find('meta', property='og:description')
         if d_meta: descricao = d_meta.get('content', '')[:800]
 
@@ -564,104 +535,35 @@ def extrair_dados_loja(url, ml_token=None):
     return None
 
 # ==========================================
-# 🧠 MÓDULO DE INTELIGÊNCIA ARTIFICIAL
+# 🧠 MÓDULO DE INTELIGÊNCIA ARTIFICIAL (CLEAN)
 # ==========================================
-PROMPT_CRIADOR_DINAMICO = """
-Aja como um gênio do copywriting e rei das sacadas de internet. Seu trabalho é vender produtos no WhatsApp para brasileiros, usando uma linguagem do dia a dia, afiada e zero corporativa.
-
-# 🚨 PASSO 1: ENTENDA A REALIDADE DO PRODUTO E SUAS ESPECIFICAÇÕES
-PRODUTO ALVO: {PRODUTO}
-DETALHES DA LOJA: {DESCRICAO}
-Pense: Quais são as especificações reais dele? (Ex: É uma TV de 32" ou de 70"? É 110V ou Bivolt? Tem quantos Litros?). Use essas informações para NÃO ser genérico. Uma TV 32" não é um cinema. Adapte a sacada ao tamanho, capacidade e utilidade EXATA do produto.
-
-# 🚨 PASSO 2: GERAÇÃO DAS FRASES
-Gere 8 FRASES INÉDITAS (entre 5 a 15 palavras), divididas RIGOROSAMENTE nestes dois estilos:
-
-🎯 ESTILO 1: IMPACTO / DESEJO / DOR DIRETA (Exatamente 4 opções)
-Foco em bater na dor ou na necessidade imediata. Linguagem informal e forte.
-
-🎯 ESTILO 2: O DEBOCHADO / SINCERÃO / SACADA GENIAL (Exatamente 4 opções)
-Humor ácido, ironia pura, papo de rua. Tire sarro do uso do produto ou zoe o comprador. Tem que ter sacada ligada às especificações do produto! NADA DE PARECER VENDEDOR DE LOJA.
-(EXEMPLOS DO NÍVEL DE CRIATIVIDADE EXIGIDO):
-- Talheres -> "JÁ PODE PARAR DE COMER COM A MÃO"
-- Perfume Masculino Doce -> "CHEIRINHO DE HOMEM QUE NÃO PRESTA"
-- Sabonete Facial -> "JÁ FEZ SUA SKIN CARE HOJE?"
-- Ferramenta -> "PRA DAR AQUELE TRATO NO SEU FUSCA"
-
-# 🚨 O QUE É EXTREMAMENTE PROIBIDO: 
-1. PROIBIDO FALAR COMO CATÁLOGO: NUNCA use frases genéricas como "Conforto e estilo", "Ideal para o dia a dia", "Aproveite a qualidade". ISSO É CHATO. Seja informal e inteligente.
-2. PROIBIDO usar: "Precinho", "Imperdível", "Qualidade", "Estoque".
-3. SEM PONTO DE EXCLAMAÇÃO (!).
-4. O usuário ODEIA as seguintes frases (NUNCA as repita): {EXEMPLOS_NEGATIVOS}
-
-# ✅ INSPIRAÇÃO (Frases que o usuário gostou): 
-{EXEMPLOS_POSITIVOS}
-"""
-
-PROMPT_JUIZ_EDITOR = """
-Você é o Editor-Chefe.
-Sua missão é extrair as frases geradas e formatar estritamente no JSON solicitado.
-OBRIGATÓRIO: O Array 'frases_vendedor' DEVE conter EXATAMENTE 4 frases e o Array 'frases_zoeira' DEVE conter EXATAMENTE 4 frases. 
-As frases devem ter entre 5 a 15 palavras e não conter ponto de exclamação.
-
-É ESTRITAMENTE PROIBIDO aprovar frases com cara de catálogo de loja (ex: "Conforto e estilo", "Ideal para o dia a dia"). As frases DEVEM ter uma sacada inteligente baseada na DESCRIÇÃO DO PRODUTO.
+PROMPT_ANALISTA_PRODUTO = """
+Você é o Analista de Produtos de um grande portal de ofertas no Brasil.
+Sua missão é formatar o título do produto e identificar a quantidade de itens.
 
 # PRODUTO ORIGINAL: {PRODUTO}
 # DETALHES DA LOJA: {DESCRICAO}
-# RASCUNHOS GERADOS: {FRASES_CANDIDATAS}
 
-# REGRA DO TÍTULO (MUITO IMPORTANTE): OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Notebook", "Geladeira"). MANTENHA a Marca, o Modelo, a quantidade. É OBRIGATÓRIO ler os "DETALHES DA LOJA" e destacar ESPECIFICAÇÕES VITAIS no título (ex: "50 Polegadas", "110V", "Bivolt", "256GB", "400 Litros"). REMOVA palavras inúteis (ex: "Original", "Premium"). Formate TUDO separando por hífen (Ex: Tipo do Produto - Marca Modelo - Especificação Vital).
+# REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Notebook", "Geladeira"). MANTENHA a Marca e o Modelo. É OBRIGATÓRIO ler os "DETALHES DA LOJA" e destacar ESPECIFICAÇÕES VITAIS no título (ex: "50 Polegadas", "110V", "Bivolt", "256GB", "400 Litros"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). Formate TUDO separando por vírgula ou hífen para ficar bonito.
 # REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), ferramentas de um estojo ou acessórios. MUITO IMPORTANTE: Itens vendidos em "Pares" (ex: meias, sapatos) contam como 1 unidade. Se o kit diz "3 Pares", a quantidade é 3. SÓ FRACIONE se for um kit de produtos idênticos. Retorne apenas o número inteiro.
 """
 
 def executar_pipeline_universal(nome_produto, descricao_produto):
-    fallback_frases = [
-        "AÍ SIM FOI VANTAGEM", 
-        "JÁ PODE APOSENTAR O VELHO", 
-        "PRA RESOLVER ESSE B.O LOGO", 
-        "O DESCONTO QUE TU QUERIA"
-    ]
-    
     try:
-        positivos, negativos = carregar_exemplos()
-        texto_positivos = "\n".join(positivos)
-        texto_negativos = "\n".join(negativos)
-        
-        prompt_gpt = PROMPT_CRIADOR_DINAMICO.replace("{PRODUTO}", nome_produto).replace("{DESCRICAO}", descricao_produto).replace("{EXEMPLOS_POSITIVOS}", texto_positivos).replace("{EXEMPLOS_NEGATIVOS}", texto_negativos)
-        
-        candidatas_brutas = None
-        if openai_client:
-            for _ in range(3):
-                try:
-                    resp_gpt = openai_client.chat.completions.create(
-                        model="gpt-4o-mini", 
-                        messages=[{"role":"user","content":prompt_gpt}], 
-                        temperature=0.75
-                    )
-                    candidatas_brutas = resp_gpt.choices[0].message.content
-                    break
-                except Exception as e: 
-                    time.sleep(1)
-        
-        if not candidatas_brutas: 
-            return fallback_frases, nome_produto, 1
-
-        prompt_editor = PROMPT_JUIZ_EDITOR.replace("{PRODUTO}", nome_produto).replace("{DESCRICAO}", descricao_produto).replace("{FRASES_CANDIDATAS}", candidatas_brutas).replace("{EXEMPLOS_NEGATIVOS}", texto_negativos)
+        prompt_editor = PROMPT_ANALISTA_PRODUTO.replace("{PRODUTO}", nome_produto).replace("{DESCRICAO}", descricao_produto)
         schema = {
             "type": "OBJECT", 
             "properties": {
-                "frases_vendedor": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases focadas em impacto ou resolver uma dor, sem cara de vendedor."},
-                "frases_zoeira": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Exatamente 4 frases com humor ácido, ironia ou papo reto de internet."},
                 "titulo_resumido": {"type": "STRING"},
                 "quantidade_itens": {"type": "INTEGER", "description": "Quantas unidades vêm no pacote? (Padrão: 1)"}
             }, 
-            "required": ["frases_vendedor", "frases_zoeira", "titulo_resumido", "quantidade_itens"]
+            "required": ["titulo_resumido", "quantidade_itens"]
         }
         
         gemini_payload = {
             "contents": [{"parts": [{"text": prompt_editor}]}], 
             "generationConfig": {
-                "temperature": 0.5, 
+                "temperature": 0.3, 
                 "responseMimeType": "application/json", 
                 "responseSchema": schema
             }
@@ -679,21 +581,8 @@ def executar_pipeline_universal(nome_produto, descricao_produto):
                     if match:
                         try:
                             dados = json.loads(match.group(0))
-                            
-                            vendedor = dados.get("frases_vendedor", [])
-                            zoeira = dados.get("frases_zoeira", [])
-                            todas_frases = []
-                            
-                            for i in range(max(len(zoeira), len(vendedor))):
-                                if i < len(zoeira): todas_frases.append(zoeira[i])
-                                if i < len(vendedor): todas_frases.append(vendedor[i])
-                            
-                            if not todas_frases:
-                                todas_frases = fallback_frases
-                                
-                            frases_limpas = [f.replace('!', '').replace('"', '').upper() for f in todas_frases]
                             qtd_ext = dados.get("quantidade_itens", 1)
-                            return frases_limpas, dados.get("titulo_resumido", nome_produto), qtd_ext
+                            return dados.get("titulo_resumido", nome_produto), qtd_ext
                         except json.JSONDecodeError:
                             pass
             except Exception as e: 
@@ -701,7 +590,7 @@ def executar_pipeline_universal(nome_produto, descricao_produto):
     except Exception as e: 
         pass
         
-    return fallback_frases, nome_produto, 1
+    return nome_produto, 1
 
 # ==========================================
 # 🌐 MOTOR DE CÁLCULO E ATUALIZAÇÃO DE TELA
@@ -773,28 +662,6 @@ def cb_aplicar_cupom_rapido(cod, tip, val, mx, loja):
     if aplicar_desconto_na_tela(cod, tip, val, mx, st.session_state.get('cupom_local', 'Nenhum')):
         salvar_cupom(loja, cod, tip, val, mx)
 
-def cb_usar_salvar_frase(titulo_produto):
-    frase = st.session_state.get('input_frase_custom', '')
-    if frase.strip():
-        linhas = st.session_state.get('area_edicao', '').split('\n')
-        if linhas: 
-            frase_formatada = frase.strip().strip('*').upper()
-            linhas[0] = f"*{frase_formatada}*"
-            novo_texto = '\n'.join(linhas)
-            st.session_state.texto_final_zap = novo_texto
-            st.session_state.area_edicao = novo_texto
-        registrar_feedback(frase_formatada, titulo_produto, 1)
-        st.session_state['input_frase_custom'] = ""
-
-def cb_trocar_frase(nova_frase):
-    linhas = st.session_state.get('area_edicao', '').split('\n')
-    if linhas: 
-        frase_limpa = nova_frase.strip().strip('*')
-        linhas[0] = f"*{frase_limpa}*"
-        novo_texto = '\n'.join(linhas)
-        st.session_state.texto_final_zap = novo_texto
-        st.session_state.area_edicao = novo_texto
-
 def cb_aplicar_selo(selo):
     texto = st.session_state.get('area_edicao', '')
     linhas = texto.split('\n')
@@ -814,7 +681,7 @@ def cb_aplicar_selo(selo):
 # ==========================================
 # 🌐 INTERFACE WEB (STREAMLIT) E ESTADO
 # ==========================================
-st.set_page_config(page_title="Oráculo Gerador", page_icon="🔮", layout="wide")
+st.set_page_config(page_title="Oráculo Web", page_icon="🔮", layout="wide")
 
 if 'historico' not in st.session_state: st.session_state.historico = []
 if 'texto_final_zap' not in st.session_state: st.session_state.texto_final_zap = ""
@@ -830,7 +697,6 @@ with st.sidebar:
         for idx, item in enumerate(st.session_state.historico):
             if st.button(f"🕒 {item['produto']['titulo'][:25]}...", key=f"hist_{idx}"):
                 st.session_state['produto_salvo'] = item['produto']
-                st.session_state['frases_salvas'] = item['frases']
                 st.session_state.texto_final_zap = item['txt_zap']
                 st.session_state.area_edicao = item['txt_zap']
                 st.session_state['cupom_codigo'] = ""
@@ -841,8 +707,8 @@ with st.sidebar:
                 st.rerun()
     else: st.caption("Nenhum histórico salvo. Eles são resetados ao fechar a guia.")
 
-st.title("🔮 Oráculo Web - Módulo Pro")
-st.markdown("Crie postagens perfeitas com IA.")
+st.title("🔮 Oráculo Web - Módulo Clean")
+st.markdown("Postagens diretas e focadas na conversão.")
 
 link_input = st.text_input("🔗 Link do Produto (ML, Amazon, Shopee, Magalu):")
 
@@ -859,12 +725,11 @@ if st.button("🚀 Gerar Postagem", type="primary", use_container_width=True):
             produto = extrair_dados_loja(link_input, ml_token=ml_token_input)
             if not produto: produto = {"titulo": "Produto Não Identificado", "descricao": "", "preco_atual": "Ver no site", "preco_antigo": None, "foto_url": None, "link": link_input}
             
-            frases, titulo_resumo, qtd_itens = executar_pipeline_universal(produto["titulo"], produto.get("descricao", ""))
+            titulo_resumo, qtd_itens = executar_pipeline_universal(produto["titulo"], produto.get("descricao", ""))
             produto['quantidade'] = qtd_itens
             
-            frase_vencedora = frases[0] if frases else "AÍ SIM FOI VANTAGEM"
-            
-            txt_zap = f"*{frase_vencedora}*\n\n🔮 {titulo_resumo}\n\n"
+            # Formato Clean (Sem frase no topo)
+            txt_zap = f"🔮 {titulo_resumo}\n\n"
             p_antigo, p_atual = produto.get('preco_antigo', ''), produto.get('preco_atual', '')
             txt_zap += f"~de R$ {p_antigo}~\n" if p_antigo and p_antigo not in ["Ver no site", "", "0,00"] else f"~de R$ ~\n"
             
@@ -885,10 +750,9 @@ if st.button("🚀 Gerar Postagem", type="primary", use_container_width=True):
             txt_zap += f"🔗 LINK MÁGICO P/ COMPRAR: {produto['link']}\n\n_⚠️ O Oráculo avisa, mas a oferta voa._"
             
             st.session_state['produto_salvo'] = produto
-            st.session_state['frases_salvas'] = frases
             st.session_state.texto_final_zap = txt_zap
             st.session_state.area_edicao = txt_zap
-            st.session_state.historico.insert(0, {'produto': produto, 'txt_zap': txt_zap, 'frases': frases})
+            st.session_state.historico.insert(0, {'produto': produto, 'txt_zap': txt_zap})
             if len(st.session_state.historico) > 10: st.session_state.historico.pop()
 
 if 'produto_salvo' in st.session_state:
@@ -954,24 +818,3 @@ if 'produto_salvo' in st.session_state:
         if col_s1.button("⚡ Oferta relâmpago", use_container_width=True, on_click=cb_aplicar_selo, args=("⚡Oferta relâmpago⚡",)): pass
         if col_s2.button("💥 Oferta imperdível", use_container_width=True, on_click=cb_aplicar_selo, args=("💥Oferta imperdível💥",)): pass
         if col_s3.button("🏴‍☠️ Preço de Bug", use_container_width=True, on_click=cb_aplicar_selo, args=("🏴‍☠️ Preço de Bug 😱",)): pass
-
-    st.markdown("---")
-    st.markdown("### 🧠 Treine a IA ou troque de frase:")
-    
-    c_nova1, c_nova2 = st.columns([10, 2])
-    with c_nova1:
-        st.text_input("Crie sua própria frase:", placeholder="Ex: PREÇO IMPERDÍVEL HOJE", label_visibility="collapsed", key="input_frase_custom")
-    with c_nova2:
-        if st.button("➕ Usar e Salvar", use_container_width=True, on_click=cb_usar_salvar_frase, args=(produto_salvo.get('titulo', ''),)):
-            if st.session_state.get('input_frase_custom', '').strip():
-                st.toast("✅ Frase aplicada e salva na memória!")
-
-    for i, f in enumerate(st.session_state.get('frases_salvas', [])[1:]):
-        c_frase, c_up, c_down = st.columns([10, 1, 1])
-        with c_frase:
-            if st.button(f"🔄 {f}", key=f"btn_trocar_frase_{i}", use_container_width=True, on_click=cb_trocar_frase, args=(f,)):
-                pass # Bypass automático
-        with c_up:
-            if st.button("👍", key=f"btn_up_{i}"): registrar_feedback(f, produto_salvo.get('titulo', ''), 1); st.toast("✅ Aprendido e Salvo!")
-        with c_down:
-            if st.button("👎", key=f"btn_down_{i}"): registrar_feedback(f, produto_salvo.get('titulo', ''), 0); st.toast("❌ Evitado e Salvo!")
