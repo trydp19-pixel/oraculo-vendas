@@ -544,7 +544,7 @@ Sua missão é formatar o título do produto e identificar a quantidade de itens
 # PRODUTO ORIGINAL: {PRODUTO}
 # DETALHES DA LOJA: {DESCRICAO}
 
-# REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Notebook", "Geladeira"). MANTENHA a Marca e o Modelo. É OBRIGATÓRIO ler os "DETALHES DA LOJA" e destacar ESPECIFICAÇÕES VITAIS no título (ex: "50 Polegadas", "110V", "Bivolt", "256GB", "400 Litros"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). Formate TUDO separando por vírgula ou hífen para ficar bonito.
+# REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Notebook", "Geladeira"). MANTENHA a Marca e o Modelo. É OBRIGATÓRIO ler os "DETALHES DA LOJA" e destacar ESPECIFICAÇÕES VITAIS no título (ex: "50 Polegadas", "110V", "Bivolt", "256GB", "400 Litros"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). É ESTRITAMENTE PROIBIDO incluir qualquer preço, valor em Reais (R$) ou aviso de desconto no título. O título deve conter apenas o nome e as especificações técnicas. Formate TUDO separando por vírgula ou hífen para ficar bonito.
 # REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), ferramentas de um estojo ou acessórios. MUITO IMPORTANTE: Itens vendidos em "Pares" (ex: meias, sapatos) contam como 1 unidade. Se o kit diz "3 Pares", a quantidade é 3. SÓ FRACIONE se for um kit de produtos idênticos. Retorne apenas o número inteiro.
 """
 
