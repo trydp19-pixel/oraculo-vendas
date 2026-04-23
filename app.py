@@ -539,13 +539,13 @@ def extrair_dados_loja(url, ml_token=None):
 # ==========================================
 PROMPT_ANALISTA_PRODUTO = """
 Você é o Analista de Produtos de um grande portal de ofertas no Brasil.
-Sua missão é formatar o título do produto e identificar a quantidade de itens.
+Sua missão é formatar o título do produto e identificar a quantidade exata de itens idênticos para fracionamento de preço.
 
 # PRODUTO ORIGINAL: {PRODUTO}
 # DETALHES DA LOJA: {DESCRICAO}
 
-# REGRA DO TÍTULO: OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Notebook", "Geladeira"). MANTENHA a Marca e o Modelo. É OBRIGATÓRIO ler os "DETALHES DA LOJA" e destacar ESPECIFICAÇÕES VITAIS no título (ex: "50 Polegadas", "110V", "Bivolt", "256GB", "400 Litros"). REMOVA palavras inúteis de enfeite (ex: "Original", "Premium"). É ESTRITAMENTE PROIBIDO incluir qualquer preço, valor em Reais (R$) ou aviso de desconto no título. O título deve conter apenas o nome e as especificações técnicas. Formate TUDO separando por vírgula ou hífen para ficar bonito.
-# REGRA DA QUANTIDADE: Identifique a quantidade de PRODUTOS. ATENÇÃO: NUNCA conte peças internas de um jogo (ex: "Dominó 28 Peças" = 1), ferramentas de um estojo ou acessórios. MUITO IMPORTANTE: Itens vendidos em "Pares" (ex: meias, sapatos) contam como 1 unidade. Se o kit diz "3 Pares", a quantidade é 3. SÓ FRACIONE se for um kit de produtos idênticos. Retorne apenas o número inteiro.
+# REGRA DO TÍTULO (MUITO IMPORTANTE): OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Pote Hermético", "Geladeira"). MANTENHA a Marca, o Modelo e a quantidade se houver. DESTAQUE ESPECIFICAÇÕES VITAIS no título (ex: "200ml", "110V", "Bivolt"). REMOVA palavras de enfeite (ex: "Original", "Lindo"). É ESTRITAMENTE PROIBIDO incluir preços, valores em (R$) ou descontos. Formate o texto EXATAMENTE separando as informações principais por hífen. Exemplo do padrão exigido: "Pote Hermético - Vidro e Bambu - 200ml - Kit 10 Unidades".
+# REGRA DA QUANTIDADE (MUITO IMPORTANTE): Identifique a quantidade de PRODUTOS IDÊNTICOS no pacote para dividir o preço. Se for "Kit 10 Potes", "Kit 10 Cuecas", "Kit 5 Pneus", a quantidade é O NÚMERO DO KIT (Ex: 10, 5). EXCEÇÕES (Quantidade = 1): Pares (meias, sapatos), jogos compostos de peças diferentes (Jogo de Panelas 5 Peças = 1, Dominó 28 Peças = 1). Retorne APENAS o número inteiro.
 """
 
 def executar_pipeline_universal(nome_produto, descricao_produto):
