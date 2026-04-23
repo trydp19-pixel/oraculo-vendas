@@ -544,7 +544,14 @@ Sua missão é formatar o título do produto e identificar a quantidade exata de
 # PRODUTO ORIGINAL: {PRODUTO}
 # DETALHES DA LOJA: {DESCRICAO}
 
-# REGRA DO TÍTULO (MUITO IMPORTANTE): OBRIGATÓRIO iniciar com o TIPO DO PRODUTO (ex: "Smart TV", "Pote Hermético", "Geladeira"). MANTENHA a Marca, o Modelo e a quantidade se houver. DESTAQUE ESPECIFICAÇÕES VITAIS no título (ex: "200ml", "110V", "Bivolt"). REMOVA palavras de enfeite (ex: "Original", "Lindo"). É ESTRITAMENTE PROIBIDO incluir preços, valores em (R$) ou descontos. Formate o texto EXATAMENTE separando as informações principais por hífen. Exemplo do padrão exigido: "Pote Hermético - Vidro e Bambu - 200ml - Kit 10 Unidades".
+# REGRA DO TÍTULO (MUITO IMPORTANTE): 
+1. INICIE com o TIPO DO PRODUTO (ex: "Smart TV", "Pote Hermético", "Multivitamínico").
+2. MANTENHA a Marca, o Modelo e a quantidade se houver. 
+3. DESTAQUE ESPECIFICAÇÕES VITAIS no título (ex: "120 Cápsulas", "200ml", "110V").
+4. REMOVA palavras de enfeite (ex: "Original", "Lindo"). 
+5. FILTRO DE PREÇO (ATENÇÃO MÁXIMA): O título original pode estar sujo com o preço colado (ex: "Multivitamínico - R$ 39,90" ou "Tênis - 150"). VOCÊ DEVE OBRIGATORIAMENTE APAGAR QUALQUER VALOR EM REAIS, SÍMBOLO "R$", NÚMEROS DE PREÇO, DESCONTOS OU OFERTAS DO TEXTO. O título final deve conter APENAS o nome e especificações da mercadoria.
+6. Formate o texto EXATAMENTE separando as informações principais por hífen. Ex: "Pote Hermético - Vidro e Bambu - 200ml - Kit 10 Unidades".
+
 # REGRA DA QUANTIDADE (MUITO IMPORTANTE): Identifique a quantidade de PRODUTOS IDÊNTICOS no pacote para dividir o preço. Se for "Kit 10 Potes", "Kit 10 Cuecas", "Kit 5 Pneus", a quantidade é O NÚMERO DO KIT (Ex: 10, 5). EXCEÇÕES (Quantidade = 1): Pares (meias, sapatos), jogos compostos de peças diferentes (Jogo de Panelas 5 Peças = 1, Dominó 28 Peças = 1). Retorne APENAS o número inteiro.
 """
 
@@ -581,8 +588,15 @@ def executar_pipeline_universal(nome_produto, descricao_produto):
                     if match:
                         try:
                             dados = json.loads(match.group(0))
+                            
+                            titulo_bruto = dados.get("titulo_resumido", nome_produto)
+                            
+                            # FAXINA PYTHON: Filtro cego contra falhas da IA (Remove R$, preços e hifens soltos)
+                            titulo_limpo = re.sub(r'(?i)[-\s]*R\$\s*\d+(?:[.,]\d+)?', '', titulo_bruto)
+                            titulo_limpo = re.sub(r'-\s*$', '', titulo_limpo).strip()
+                            
                             qtd_ext = dados.get("quantidade_itens", 1)
-                            return dados.get("titulo_resumido", nome_produto), qtd_ext
+                            return titulo_limpo, qtd_ext
                         except json.JSONDecodeError:
                             pass
             except Exception as e: 
