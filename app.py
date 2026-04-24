@@ -10,15 +10,22 @@ import base64
 import urllib.parse
 import streamlit as st
 from bs4 import BeautifulSoup
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Carrega as chaves
 load_dotenv()
 
 GEMINI_KEY = os.getenv("GEMINI_KEY")
+CHATGPT_KEY = os.getenv("CHATGPT_KEY")
 SHOPEE_APP_ID = os.getenv("SHOPEE_APP_ID")
 SHOPEE_APP_SECRET = os.getenv("SHOPEE_APP_SECRET")
 ML_TOKEN = os.getenv("ML_TOKEN") 
+
+try: 
+    openai_client = OpenAI(api_key=CHATGPT_KEY)
+except: 
+    openai_client = None
 
 # ==========================================
 # 🗄️ MÓDULO DE BANCO DE DADOS
@@ -535,7 +542,7 @@ def extrair_dados_loja(url, ml_token=None):
     return None
 
 # ==========================================
-# 🧠 MÓDULO DE INTELIGÊNCIA ARTIFICIAL (CLEAN)
+# 🧠 MÓDULO DE INTELIGÊNCIA ARTIFICIAL (CLEAN + FALLBACK GPT)
 # ==========================================
 PROMPT_ANALISTA_PRODUTO = """
 Você é o Analista de Produtos de um grande portal de ofertas no Brasil.
@@ -545,19 +552,27 @@ Sua missão é formatar o título do produto e identificar a quantidade exata de
 # DETALHES DA LOJA: {DESCRICAO}
 
 # REGRA DO TÍTULO (MUITO IMPORTANTE): 
-1. INICIE com o TIPO DO PRODUTO (ex: "Smart TV", "Pote Hermético", "Multivitamínico").
+1. INICIE com o TIPO DO PRODUTO (ex: "Smart TV", "Pote Hermético", "Multivitamínico", "Barraca").
 2. MANTENHA a Marca, o Modelo e a quantidade se houver. 
-3. DESTAQUE ESPECIFICAÇÕES VITAIS no título (ex: "120 Cápsulas", "200ml", "110V").
+3. DESTAQUE ESPECIFICAÇÕES VITAIS no título (ex: "120 Cápsulas", "200ml", "110V", "12 Pessoas").
 4. REMOVA palavras de enfeite (ex: "Original", "Lindo"). 
 5. FILTRO DE PREÇO (ATENÇÃO MÁXIMA): O título original pode estar sujo com o preço colado (ex: "Multivitamínico - R$ 39,90" ou "Tênis - 150"). VOCÊ DEVE OBRIGATORIAMENTE APAGAR QUALQUER VALOR EM REAIS, SÍMBOLO "R$", NÚMEROS DE PREÇO, DESCONTOS OU OFERTAS DO TEXTO. O título final deve conter APENAS o nome e especificações da mercadoria.
 6. Formate o texto EXATAMENTE separando as informações principais por hífen. Ex: "Pote Hermético - Vidro e Bambu - 200ml - Kit 10 Unidades".
 
 # REGRA DA QUANTIDADE (MUITO IMPORTANTE): Identifique a quantidade de PRODUTOS IDÊNTICOS no pacote para dividir o preço. Se for "Kit 10 Potes", "Kit 10 Cuecas", "Kit 5 Pneus", a quantidade é O NÚMERO DO KIT (Ex: 10, 5). EXCEÇÕES (Quantidade = 1): Pares (meias, sapatos), jogos compostos de peças diferentes (Jogo de Panelas 5 Peças = 1, Dominó 28 Peças = 1). Retorne APENAS o número inteiro.
+
+RETORNE OBRIGATORIAMENTE UM JSON COM AS CHAVES: "titulo_resumido" e "quantidade_itens".
 """
 
 def executar_pipeline_universal(nome_produto, descricao_produto):
+    # Faxina Python de Emergência: Limpa o nome original caso todas as IAs falhem
+    titulo_emergencia = re.sub(r'(?i)[-\s]*R\$\s*\d+(?:[.,]\d+)?', '', nome_produto)
+    titulo_emergencia = re.sub(r'-\s*$', '', titulo_emergencia).strip()
+    
+    prompt_editor = PROMPT_ANALISTA_PRODUTO.replace("{PRODUTO}", nome_produto).replace("{DESCRICAO}", descricao_produto)
+    
+    # Tentativa 1: GEMINI
     try:
-        prompt_editor = PROMPT_ANALISTA_PRODUTO.replace("{PRODUTO}", nome_produto).replace("{DESCRICAO}", descricao_produto)
         schema = {
             "type": "OBJECT", 
             "properties": {
@@ -577,34 +592,61 @@ def executar_pipeline_universal(nome_produto, descricao_produto):
         }
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
         
-        for _ in range(3):
+        for _ in range(2):
             try:
-                r = requests.post(gemini_url, json=gemini_payload, timeout=15)
+                r = requests.post(gemini_url, json=gemini_payload, timeout=10)
                 if r.status_code == 200:
                     dados_api = r.json()
                     texto_resposta = dados_api['candidates'][0]['content']['parts'][0]['text']
                     
                     match = re.search(r'\{.*\}', texto_resposta, re.DOTALL)
                     if match:
-                        try:
-                            dados = json.loads(match.group(0))
-                            
-                            titulo_bruto = dados.get("titulo_resumido", nome_produto)
-                            
-                            # FAXINA PYTHON: Filtro cego contra falhas da IA (Remove R$, preços e hifens soltos)
-                            titulo_limpo = re.sub(r'(?i)[-\s]*R\$\s*\d+(?:[.,]\d+)?', '', titulo_bruto)
-                            titulo_limpo = re.sub(r'-\s*$', '', titulo_limpo).strip()
-                            
-                            qtd_ext = dados.get("quantidade_itens", 1)
-                            return titulo_limpo, qtd_ext
-                        except json.JSONDecodeError:
-                            pass
-            except Exception as e: 
+                        dados = json.loads(match.group(0))
+                        titulo_bruto = dados.get("titulo_resumido", titulo_emergencia)
+                        
+                        # Faxina Python pós-IA: Garante que a IA não deixou o preço passar
+                        titulo_limpo = re.sub(r'(?i)[-\s]*R\$\s*\d+(?:[.,]\d+)?', '', titulo_bruto)
+                        titulo_limpo = re.sub(r'-\s*$', '', titulo_limpo).strip()
+                        
+                        qtd_ext = dados.get("quantidade_itens", 1)
+                        return titulo_limpo, qtd_ext
+            except Exception: 
                 time.sleep(1)
-    except Exception as e: 
+    except Exception: 
         pass
-        
-    return nome_produto, 1
+
+    # Tentativa 2: CHATGPT (Fallback Blindado)
+    if openai_client:
+        print("🔄 Gemini falhou. Acionando ChatGPT como fallback...")
+        try:
+            for _ in range(2):
+                try:
+                    resp_gpt = openai_client.chat.completions.create(
+                        model="gpt-4o-mini", 
+                        messages=[{"role":"user","content":prompt_editor}], 
+                        temperature=0.3,
+                        response_format={"type": "json_object"}
+                    )
+                    texto_resposta = resp_gpt.choices[0].message.content
+                    match = re.search(r'\{.*\}', texto_resposta, re.DOTALL)
+                    if match:
+                        dados = json.loads(match.group(0))
+                        titulo_bruto = dados.get("titulo_resumido", titulo_emergencia)
+                        
+                        # Faxina Python pós-IA
+                        titulo_limpo = re.sub(r'(?i)[-\s]*R\$\s*\d+(?:[.,]\d+)?', '', titulo_bruto)
+                        titulo_limpo = re.sub(r'-\s*$', '', titulo_limpo).strip()
+                        
+                        qtd_ext = dados.get("quantidade_itens", 1)
+                        return titulo_limpo, qtd_ext
+                except Exception:
+                    time.sleep(1)
+        except Exception:
+            pass
+            
+    # Se der o pior cenário do mundo (sem internet ou API fora do ar)
+    print("⚠️ As duas IAs falharam. Usando título limpo de emergência.")
+    return titulo_emergencia, 1
 
 # ==========================================
 # 🌐 MOTOR DE CÁLCULO E ATUALIZAÇÃO DE TELA
@@ -735,7 +777,7 @@ if st.button("🚀 Gerar Postagem", type="primary", use_container_width=True):
         st.session_state['cupom_max'] = 0.0
         st.session_state['cupom_local'] = "Nenhum"
 
-        with st.spinner("Decodificando a loja..."):
+        with st.spinner("Decodificando a loja e gerando copy..."):
             produto = extrair_dados_loja(link_input, ml_token=ml_token_input)
             if not produto: produto = {"titulo": "Produto Não Identificado", "descricao": "", "preco_atual": "Ver no site", "preco_antigo": None, "foto_url": None, "link": link_input}
             
