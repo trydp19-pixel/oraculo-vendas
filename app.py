@@ -681,7 +681,8 @@ def aplicar_desconto_na_tela(codigo, tipo, valor, maximo, local_aplicacao=""):
                 if re.search(r'\(R\$\s*[\d.,]+/unidade\)', texto_atual):
                     texto_atual = re.sub(r'\(R\$\s*[\d.,]+/unidade\)', f'(R$ {novo_p_un}/unidade)', texto_atual)
                 else:
-                    texto_atual = texto_atual.replace('🔥', f'🔥 (R$ {novo_p_un}/unidade)')
+                    # Adiciona a unidade logo após a formatação de preço "*por R$ XX*"
+                    texto_atual = re.sub(r'(\*por R\$\s*[\d.,]+\*)', r'\1' + f' (R$ {novo_p_un}/unidade)', texto_atual)
             
             texto_cupom = ""
             if codigo:
@@ -721,18 +722,52 @@ def cb_aplicar_cupom_rapido(cod, tip, val, mx, loja):
 def cb_aplicar_selo(selo):
     texto = st.session_state.get('area_edicao', '')
     linhas = texto.split('\n')
-    selos_possiveis = ["⚡Oferta relâmpago⚡", "💥Oferta imperdível💥", "🏴‍☠️ Preço de Bug 😱"]
+    selos_possiveis = ["💥Oferta imperdível💥", "⚡Oferta relâmpago⚡", "🏴‍☠️ Preço de Bug 😱"]
+    
     for i, linha in enumerate(linhas):
         if 'por r$' in linha.lower():
-            # Limpa qualquer selo antigo que já esteja na linha
+            # Limpa qualquer selo antigo (com ou sem parênteses)
             for s in selos_possiveis:
-                linha = linha.replace(f" _({s})_", "").replace(f" _({s})", "").replace(f"({s})", "").strip()
-            # Adiciona o novo selo no final da linha
-            linhas[i] = linha + f" _({selo})_"
+                linha = linha.replace(f" _{s}_", "").replace(f" _({s})_", "").replace(f" ({s})", "").strip()
+            
+            # Remove o foguinho original se existir
+            linha = linha.replace("🔥", "").strip()
+            
+            # Adiciona o novo selo no final da linha (sem os parênteses)
+            linhas[i] = linha + f" _{selo}_"
             break
+            
     novo_texto = '\n'.join(linhas)
     st.session_state.texto_final_zap = novo_texto
     st.session_state.area_edicao = novo_texto
+
+def cb_aplicar_frase_impacto():
+    frase = st.session_state.get('input_frase_impacto', '').strip().upper()
+    if not frase: return
+    
+    texto = st.session_state.get('area_edicao', '')
+    linhas = texto.split('\n')
+    
+    idx_titulo = -1
+    idx_preco_antigo = -1
+    
+    # Procura onde está o título e onde começam os preços
+    for i, linha in enumerate(linhas):
+        if '🔮' in linha: idx_titulo = i
+        if '~de R$' in linha or '*por R$' in linha:
+            if idx_preco_antigo == -1: idx_preco_antigo = i
+            
+    if idx_titulo != -1 and idx_preco_antigo != -1:
+        # Substitui tudo que estiver entre o título e os preços pela nova frase
+        novas_linhas = linhas[:idx_titulo+1] + ["", frase, ""] + linhas[idx_preco_antigo:]
+        novo_texto = '\n'.join(novas_linhas)
+        
+        # Limpa quebras de linha duplas
+        novo_texto = re.sub(r'\n{3,}', '\n\n', novo_texto)
+        
+        st.session_state.texto_final_zap = novo_texto
+        st.session_state.area_edicao = novo_texto
+        st.session_state['input_frase_impacto'] = ""
 
 # ==========================================
 # 🌐 INTERFACE WEB (STREAMLIT) E ESTADO
@@ -777,14 +812,13 @@ if st.button("🚀 Gerar Postagem", type="primary", use_container_width=True):
         st.session_state['cupom_max'] = 0.0
         st.session_state['cupom_local'] = "Nenhum"
 
-        with st.spinner("Decodificando a loja e gerando copy..."):
+        with st.spinner("Decodificando a loja e formatando..."):
             produto = extrair_dados_loja(link_input, ml_token=ml_token_input)
             if not produto: produto = {"titulo": "Produto Não Identificado", "descricao": "", "preco_atual": "Ver no site", "preco_antigo": None, "foto_url": None, "link": link_input}
             
             titulo_resumo, qtd_itens = executar_pipeline_universal(produto["titulo"], produto.get("descricao", ""))
             produto['quantidade'] = qtd_itens
             
-            # Formato Clean (Sem frase no topo)
             txt_zap = f"🔮 {titulo_resumo}\n\n"
             p_antigo, p_atual = produto.get('preco_antigo', ''), produto.get('preco_atual', '')
             txt_zap += f"~de R$ {p_antigo}~\n" if p_antigo and p_antigo not in ["Ver no site", "", "0,00"] else f"~de R$ ~\n"
@@ -869,8 +903,18 @@ if 'produto_salvo' in st.session_state:
         texto_url = urllib.parse.quote(texto_editado)
         st.link_button("📲 Enviar para o WhatsApp", f"https://api.whatsapp.com/send?text={texto_url}", use_container_width=True)
         
-        st.markdown("🔖 **Selos Rápidos (Adiciona ao lado do preço):**")
+        st.markdown("---")
+        
+        st.markdown("### ✍️ Adicionar Frase de Impacto")
+        col_f1, col_f2 = st.columns([10, 2])
+        with col_f1:
+            st.text_input("Frase (Aparecerá abaixo do título):", placeholder="Ex: ASSISTIR A COPA EM TELA DE CINEMA", label_visibility="collapsed", key="input_frase_impacto")
+        with col_f2:
+            if st.button("➕ Inserir", use_container_width=True, on_click=cb_aplicar_frase_impacto):
+                pass
+                
+        st.markdown("🔖 **Selos Rápidos (Aparecem ao lado do preço):**")
         col_s1, col_s2, col_s3 = st.columns(3)
-        if col_s1.button("⚡ Oferta relâmpago", use_container_width=True, on_click=cb_aplicar_selo, args=("⚡Oferta relâmpago⚡",)): pass
-        if col_s2.button("💥 Oferta imperdível", use_container_width=True, on_click=cb_aplicar_selo, args=("💥Oferta imperdível💥",)): pass
+        if col_s1.button("💥 Oferta imperdível", use_container_width=True, on_click=cb_aplicar_selo, args=("💥Oferta imperdível💥",)): pass
+        if col_s2.button("⚡ Oferta relâmpago", use_container_width=True, on_click=cb_aplicar_selo, args=("⚡Oferta relâmpago⚡",)): pass
         if col_s3.button("🏴‍☠️ Preço de Bug", use_container_width=True, on_click=cb_aplicar_selo, args=("🏴‍☠️ Preço de Bug 😱",)): pass
